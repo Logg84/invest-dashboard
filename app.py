@@ -4,9 +4,10 @@ import pandas as pd
 import numpy as np
 import calendar
 import time
+import random
 
 # --- CONFIGURAZIONE VISIVA ---
-st.set_page_config(page_title="Strategic Terminal v10.0 (Lazy)", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v11.0 (Stealth)", layout="wide")
 st.markdown("""
 <style>
     .stButton>button { width: 100%; border-radius: 4px; height: 1.8em; padding: 0px; font-size: 0.8rem; }
@@ -88,25 +89,34 @@ db_structure = {
     }
 }
 
-# --- MOTORE DI CALCOLO "PIGRO" (LAZY) ---
-# Questa funzione scarica SOLO i dati di un singolo ticker
-def get_single_ticker_data(ticker):
+# --- MOTORE DI SCARICO "STEALTH" (Use Ticker().history) ---
+def get_safe_history(ticker_symbol):
+    """
+    Scarica i dati cercando di evadere il rate limit.
+    Usa .history() invece di .download() che è spesso più tollerante.
+    """
+    # Pausa casuale per sembrare umano
+    time.sleep(random.uniform(0.2, 0.8)) 
+    
     try:
-        # Scarichiamo dati con thread disabilitati per stabilità
-        df = yf.download(ticker, period="2y", progress=False, threads=False)
-        if len(df) > 0:
-            if df.index.tz is not None: df.index = df.index.tz_localize(None)
-            return df
+        tk = yf.Ticker(ticker_symbol)
+        df = tk.history(period="2y")
+        
+        # Se vuoto, riprova una volta con pausa più lunga
+        if df.empty:
+            time.sleep(2)
+            df = tk.history(period="2y")
+            
+        if not df.empty and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+            
+        return df
     except Exception:
-        return pd.DataFrame() # Vuoto
-    return pd.DataFrame()
+        return pd.DataFrame()
 
-# Analisi completa (richiamata solo quando serve)
 @st.cache_data(ttl=3600)
 def analyze_asset_complete(ticker):
-    # Ritardo artificiale per non spammare Yahoo (0.1s)
-    time.sleep(0.1)
-    df = get_single_ticker_data(ticker)
+    df = get_safe_history(ticker)
     
     if df.empty or len(df) < 20: 
         return None
@@ -123,6 +133,7 @@ def analyze_asset_complete(ticker):
             perf_6m = ((curr - p6m)/p6m)*100
             perf_1y = ((curr - p1y)/p1y)*100
             
+            # Algoritmo Severo
             w_perf = (perf_3m*0.4) + (perf_1m*0.3) + (perf_6m*0.2) + (perf_1y*0.1)
             return max(min(w_perf / 3.0, 10), -10)
 
@@ -183,8 +194,8 @@ def render_score_cell(score_curr, score_prev):
 
 # --- PAGINA DASHBOARD ---
 def render_dashboard():
-    st.title("🌍 Strategic Terminal v10.0 (Stable)")
-    st.caption("Lazy Loading attivato per stabilità connessione.")
+    st.title("🌍 Strategic Terminal v11.0")
+    st.caption("Mode: Stealth (Rallentato per stabilità)")
 
     def render_header():
         c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
@@ -201,14 +212,24 @@ def render_dashboard():
     render_header()
     
     geo_list = []
-    # Scarica SOLO i proxy principali (pochi dati)
-    with st.spinner('Analisi Macro Trend (Proxy Only)...'):
-        for area, data in db_structure['GEO'].items():
-            stats = analyze_asset_complete(data['proxy'])
-            if stats: geo_list.append({**stats, "Area": area})
+    
+    # BARRA DI PROGRESSO (Perché sarà lento)
+    proxies = list(db_structure['GEO'].items())
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, (area, data) in enumerate(proxies):
+        # status_text.text(f"Analisi: {area}...") # Rimosso per pulizia
+        stats = analyze_asset_complete(data['proxy'])
+        if stats: 
+            geo_list.append({**stats, "Area": area})
+        progress_bar.progress((i + 1) / len(proxies))
+    
+    status_text.empty()
+    progress_bar.empty()
     
     if not geo_list:
-        st.error("Errore connessione. Ricarica la pagina.")
+        st.error("Nessun dato recuperato. Yahoo Finance potrebbe aver bloccato temporaneamente l'IP. Riprova tra 5 minuti.")
     else:
         df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
         
@@ -225,13 +246,11 @@ def render_dashboard():
                 lab = "⬇️" if st.session_state.expanded_geo == row['Area'] else "▶️"
                 if c6.button(lab, key=f"bg_{row['Area']}"): toggle_geo(row['Area']); st.rerun()
 
-                # LOGICA LAZY: Scarica i dettagli SOLO se espanso
                 if st.session_state.expanded_geo == row['Area']:
                     with st.container(border=True):
-                        st.info(f"Scaricamento dettagli per {row['Area']}...")
-                        
+                        st.info(f"Recupero dettagli {row['Area']}...")
                         h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 1, 1, 1, 1])
-                        h1.markdown("*Nome Asset*")
+                        h1.markdown("*Asset*")
                         h2.markdown("*Prezzo*")
                         h3.markdown("*Trend B.*")
                         h4.markdown("*Trend M.*")
@@ -239,7 +258,7 @@ def render_dashboard():
                         
                         assets = db_structure['GEO'][row['Area']]['assets']
                         for a in assets:
-                            s = analyze_asset_complete(a['t']) # <--- SCARICA QUI, ON DEMAND
+                            s = analyze_asset_complete(a['t'])
                             if s:
                                 ac1, ac2, ac3, ac4, ac5, ac6 = st.columns([2, 1, 1, 1, 1, 1])
                                 ac1.write(f"**{a['n']}**")
@@ -258,11 +277,17 @@ def render_dashboard():
     render_header()
     
     sect_list = []
-    with st.spinner('Analisi Settoriale (Proxy Only)...'):
-        for sect, data in db_structure['SECTOR'].items():
-            stats = analyze_asset_complete(data['proxy'])
-            if stats: sect_list.append({**stats, "Settore": sect})
-            
+    
+    proxies_s = list(db_structure['SECTOR'].items())
+    progress_bar_s = st.progress(0)
+    
+    for i, (sect, data) in enumerate(proxies_s):
+        stats = analyze_asset_complete(data['proxy'])
+        if stats: sect_list.append({**stats, "Settore": sect})
+        progress_bar_s.progress((i + 1) / len(proxies_s))
+        
+    progress_bar_s.empty()
+
     if sect_list:
         df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
         with st.container(height=600):
@@ -280,7 +305,7 @@ def render_dashboard():
 
                 if st.session_state.expanded_sector == row['Settore']:
                     with st.container(border=True):
-                        st.info(f"Scaricamento dettagli per {row['Settore']}...")
+                        st.info(f"Recupero dettagli {row['Settore']}...")
                         h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 1, 1, 1, 1])
                         h1.markdown("*Asset*")
                         h2.markdown("*Trend B.*")
@@ -288,7 +313,7 @@ def render_dashboard():
                         h4.markdown("*Trend L.*")
                         assets = db_structure['SECTOR'][row['Settore']]['assets']
                         for a in assets:
-                            s = analyze_asset_complete(a['t']) # <--- ON DEMAND
+                            s = analyze_asset_complete(a['t'])
                             if s:
                                 ac1, ac2, ac3, ac4, ac5, ac6 = st.columns([2, 1, 1, 1, 1, 1])
                                 ac1.write(f"**{a['n']}**")
@@ -311,7 +336,6 @@ def render_dashboard():
             with st.container(border=True):
                 st.subheader(pillar_name)
                 main = data['main']
-                # On demand
                 m_stats = analyze_asset_complete(main['t'])
                 
                 if m_stats:
@@ -339,7 +363,7 @@ def render_detail():
     st.button("🔙 TORNA ALLA DASHBOARD", on_click=back_to_dash)
     st.title(f"Analisi Approfondita: {tk}")
     
-    df = get_single_ticker_data(tk)
+    df = get_safe_history(tk)
     if not df.empty and len(df) > 20:
         st.subheader("Grafico Tecnico & Medie Mobili")
         df['SMA50'] = df['Close'].rolling(50).mean()
