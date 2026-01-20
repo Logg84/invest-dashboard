@@ -5,10 +5,8 @@ import numpy as np
 import calendar
 
 # --- CONFIGURAZIONE VISIVA ---
-st.set_page_config(page_title="Strategic Terminal v6.1", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v7.0 (Strict)", layout="wide")
 
-# --- CSS CUSTOM ---
-# Miglioriamo solo i bottoni e la spaziatura, niente sfondi colorati invasivi
 st.markdown("""
 <style>
     .stButton>button { width: 100%; border-radius: 5px; height: 2em; padding: 0.1em; }
@@ -16,31 +14,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- STATO DELLA NAVIGAZIONE ---
+# --- STATO NAVIGAZIONE ---
 if 'page' not in st.session_state: st.session_state.page = 'dashboard'
 if 'selected_asset' not in st.session_state: st.session_state.selected_asset = None 
 if 'expanded_geo' not in st.session_state: st.session_state.expanded_geo = None
 if 'expanded_sector' not in st.session_state: st.session_state.expanded_sector = None
 
-# --- DATABASE ESTESO (GLOBAL) ---
+# --- DATABASE ---
 db_structure = {
     "GEO": {
-        "USA (S&P 500)": { "proxy": "SPY", "assets": [{"t": "VOO", "n": "Vanguard S&P 500", "type": "ETF"}, {"t": "NVDA", "n": "NVIDIA", "type": "Stock"}]},
-        "India": { "proxy": "INDA", "assets": [{"t": "INDA", "n": "iShares MSCI India", "type": "ETF"}, {"t": "RIGD.IL", "n": "Reliance Ind.", "type": "Stock"}]},
-        "Taiwan": { "proxy": "EWT", "assets": [{"t": "EWT", "n": "iShares MSCI Taiwan", "type": "ETF"}, {"t": "TSM", "n": "TSMC", "type": "Stock"}]},
-        "Giappone": { "proxy": "EWJ", "assets": [{"t": "EWJ", "n": "Japan ETF", "type": "ETF"}, {"t": "TM", "n": "Toyota", "type": "Stock"}]},
-        "Germania": { "proxy": "EWG", "assets": [{"t": "EWG", "n": "Germany ETF", "type": "ETF"}, {"t": "SIE.DE", "n": "Siemens", "type": "Stock"}]},
-        "Regno Unito": { "proxy": "EWU", "assets": [{"t": "EWU", "n": "UK ETF", "type": "ETF"}, {"t": "AZN", "n": "AstraZeneca", "type": "Stock"}]},
-        "Canada": { "proxy": "EWC", "assets": [{"t": "EWC", "n": "Canada ETF", "type": "ETF"}, {"t": "RY", "n": "Royal Bank Canada", "type": "Stock"}]},
-        "Australia": { "proxy": "EWA", "assets": [{"t": "EWA", "n": "Australia ETF", "type": "ETF"}, {"t": "BHP", "n": "BHP Group", "type": "Stock"}]},
-        "Corea del Sud": { "proxy": "EWY", "assets": [{"t": "EWY", "n": "South Korea ETF", "type": "ETF"}, {"t": "005930.KS", "n": "Samsung", "type": "Stock"}]},
-        "Brasile": { "proxy": "EWZ", "assets": [{"t": "EWZ", "n": "Brazil ETF", "type": "ETF"}, {"t": "PBR", "n": "Petrobras", "type": "Stock"}]},
-        "Svizzera": { "proxy": "EWL", "assets": [{"t": "EWL", "n": "Switzerland ETF", "type": "ETF"}, {"t": "NESN.SW", "n": "Nestle", "type": "Stock"}]},
-        "Italia": { "proxy": "EWI", "assets": [{"t": "EWI", "n": "Italy ETF", "type": "ETF"}, {"t": "RACE", "n": "Ferrari", "type": "Stock"}]},
-        "Francia": { "proxy": "EWQ", "assets": [{"t": "EWQ", "n": "France ETF", "type": "ETF"}, {"t": "MC.PA", "n": "LVMH", "type": "Stock"}]},
+        "USA (S&P 500)": { "proxy": "SPY", "assets": [{"t": "VOO", "n": "S&P 500", "type": "ETF"}, {"t": "QQQ", "n": "Nasdaq", "type": "ETF"}]},
+        "USA (Dow Jones)": { "proxy": "DIA", "assets": [{"t": "DIA", "n": "Dow Jones", "type": "ETF"}, {"t": "BA", "n": "Boeing", "type": "Stock"}]},
         "Cina": { "proxy": "FXI", "assets": [{"t": "FXI", "n": "China Large-Cap", "type": "ETF"}, {"t": "BABA", "n": "Alibaba", "type": "Stock"}]},
-        "Paesi Bassi": { "proxy": "EWN", "assets": [{"t": "EWN", "n": "Netherlands ETF", "type": "ETF"}, {"t": "ASML", "n": "ASML", "type": "Stock"}]},
-        "Messico": { "proxy": "EWW", "assets": [{"t": "EWW", "n": "Mexico ETF", "type": "ETF"}, {"t": "AMX", "n": "America Movil", "type": "Stock"}]}
+        "India": { "proxy": "INDA", "assets": [{"t": "INDA", "n": "India ETF", "type": "ETF"}, {"t": "EPI", "n": "India Earnings", "type": "ETF"}]},
+        "Giappone": { "proxy": "EWJ", "assets": [{"t": "EWJ", "n": "Japan ETF", "type": "ETF"}, {"t": "TM", "n": "Toyota", "type": "Stock"}]},
+        "Germania": { "proxy": "EWG", "assets": [{"t": "EWG", "n": "Germany ETF", "type": "ETF"}, {"t": "DAX", "n": "DAX Index", "type": "ETF"}]},
+        "Regno Unito": { "proxy": "EWU", "assets": [{"t": "EWU", "n": "UK ETF", "type": "ETF"}, {"t": "SHEL", "n": "Shell", "type": "Stock"}]},
+        "Francia": { "proxy": "EWQ", "assets": [{"t": "EWQ", "n": "France ETF", "type": "ETF"}, {"t": "MC.PA", "n": "LVMH", "type": "Stock"}]},
+        "Italia": { "proxy": "EWI", "assets": [{"t": "EWI", "n": "Italy ETF", "type": "ETF"}, {"t": "ISP.MI", "n": "Intesa", "type": "Stock"}]},
+        "Svizzera": { "proxy": "EWL", "assets": [{"t": "EWL", "n": "Switzerland ETF", "type": "ETF"}, {"t": "NESN.SW", "n": "Nestle", "type": "Stock"}]},
+        "Taiwan": { "proxy": "EWT", "assets": [{"t": "EWT", "n": "Taiwan ETF", "type": "ETF"}, {"t": "TSM", "n": "TSMC", "type": "Stock"}]},
+        "Corea del Sud": { "proxy": "EWY", "assets": [{"t": "EWY", "n": "Korea ETF", "type": "ETF"}, {"t": "005930.KS", "n": "Samsung", "type": "Stock"}]},
+        "Brasile": { "proxy": "EWZ", "assets": [{"t": "EWZ", "n": "Brazil ETF", "type": "ETF"}, {"t": "PBR", "n": "Petrobras", "type": "Stock"}]},
+        "Messico": { "proxy": "EWW", "assets": [{"t": "EWW", "n": "Mexico ETF", "type": "ETF"}, {"t": "AMX", "n": "America Movil", "type": "Stock"}]},
+        "Canada": { "proxy": "EWC", "assets": [{"t": "EWC", "n": "Canada ETF", "type": "ETF"}, {"t": "RY", "n": "Royal Bank", "type": "Stock"}]},
+        "Australia": { "proxy": "EWA", "assets": [{"t": "EWA", "n": "Australia ETF", "type": "ETF"}, {"t": "BHP", "n": "BHP", "type": "Stock"}]},
+        "Paesi Bassi": { "proxy": "EWN", "assets": [{"t": "EWN", "n": "Netherlands", "type": "ETF"}, {"t": "ASML", "n": "ASML", "type": "Stock"}]},
+        "Spagna": { "proxy": "EWP", "assets": [{"t": "EWP", "n": "Spain ETF", "type": "ETF"}, {"t": "BBVA", "n": "BBVA", "type": "Stock"}]},
+        "Svezia": { "proxy": "EWD", "assets": [{"t": "EWD", "n": "Sweden ETF", "type": "ETF"}, {"t": "ERIC", "n": "Ericsson", "type": "Stock"}]},
+        "Turchia": { "proxy": "TUR", "assets": [{"t": "TUR", "n": "Turkey ETF", "type": "ETF"}, {"t": "TKC", "n": "Turkcell", "type": "Stock"}]}
     },
     "SECTOR": {
         "Technology": {"proxy": "XLK", "assets": [{"t": "XLK", "n": "Tech ETF", "type": "ETF"}, {"t": "MSFT", "n": "Microsoft", "type": "Stock"}]},
@@ -57,7 +59,8 @@ db_structure = {
         "Cons. Discret.": {"proxy": "XLY", "assets": [{"t": "XLY", "n": "Discret. ETF", "type": "ETF"}, {"t": "AMZN", "n": "Amazon", "type": "Stock"}]},
         "Comm. Services": {"proxy": "XLC", "assets": [{"t": "XLC", "n": "Comm. ETF", "type": "ETF"}, {"t": "GOOGL", "n": "Google", "type": "Stock"}]},
         "Gold Miners": {"proxy": "GDX", "assets": [{"t": "GDX", "n": "Gold Miners", "type": "ETF"}, {"t": "NEM", "n": "Newmont", "type": "Stock"}]},
-        "Biotech": {"proxy": "IBB", "assets": [{"t": "IBB", "n": "Biotech ETF", "type": "ETF"}, {"t": "VRTX", "n": "Vertex", "type": "Stock"}]}
+        "Biotech": {"proxy": "IBB", "assets": [{"t": "IBB", "n": "Biotech ETF", "type": "ETF"}, {"t": "VRTX", "n": "Vertex", "type": "Stock"}]},
+        "Regional Banking": {"proxy": "KRE", "assets": [{"t": "KRE", "n": "Regional Bank", "type": "ETF"}, {"t": "USB", "n": "US Bancorp", "type": "Stock"}]}
     },
     "PILLARS": {
         "1. DIFESA / AIRBAG": {
@@ -79,7 +82,7 @@ db_structure = {
     }
 }
 
-# --- FUNZIONI CALCOLO ---
+# --- MOTORE DI CALCOLO (ALGORITMO SEVERO) ---
 @st.cache_data(ttl=3600)
 def get_extended_data(ticker):
     try:
@@ -102,7 +105,17 @@ def get_extended_data(ticker):
         perf_6m = ((curr - p6m) / p6m) * 100
         perf_1y = ((curr - p1y) / p1y) * 100
         
-        raw_score = (perf_3m * 0.4) + (perf_1m * 0.3) + (perf_6m * 0.2) + (perf_1y * 0.1)
+        # --- NEW SCORING ALGORITHM (STRICT MODE) ---
+        # Vecchio metodo: somma ponderata diretta.
+        # Nuovo metodo: La somma ponderata viene divisa per un fattore di difficoltà (3.0)
+        # Esempio: Se un asset fa +10% su tutti i timeframe, il weighted è 10.
+        # Score finale = 10 / 3 = 3.3 (Voto basso/realistico)
+        # Per avere 10, devi avere una media pesata del 30%+.
+        
+        weighted_perf = (perf_3m * 0.4) + (perf_1m * 0.3) + (perf_6m * 0.2) + (perf_1y * 0.1)
+        raw_score = weighted_perf / 3.0 
+        
+        # Cap a +/- 10
         score = max(min(raw_score, 10), -10)
         
         sma200_val = float(df['Close'].rolling(200).mean().iloc[-1]) if len(df) > 200 else p6m
@@ -128,7 +141,6 @@ def toggle_sector(sector):
 
 # --- UI COMPONENTS ---
 def render_header_row():
-    # Intestazione allineata
     c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
     c1.markdown("**NOME ASSET**")
     c2.markdown("**1M**")
@@ -143,29 +155,27 @@ def color_val(val):
     return f":green[{val:.1f}%]" if val > 0 else f":red[{val:.1f}%]"
 
 def render_list_item(name, stats, expanded_key, toggle_func, type_label):
-    # Logica icone (Hot/Cold) senza righe aggiuntive
+    # Logica Icone integrata (Niente righe doppie)
     icon_prefix = ""
-    if stats['score'] >= 7.5:
-        icon_prefix = "🔥 " # Hot
-    elif stats['score'] <= -7.5:
-        icon_prefix = "❄️ " # Cold
+    # Soglia alzata a 8.0 per rendere il "FIRE" esclusivo
+    if stats['score'] >= 8.0:
+        icon_prefix = "🔥 " 
+    elif stats['score'] <= -8.0:
+        icon_prefix = "❄️ "
         
     c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
     
-    # Colonna 1: Nome con icona integrata (NESSUN MARKDOWN EXTRA)
+    # Riga Unica Pulita
     c1.markdown(f"**{icon_prefix}{name}**")
-    
-    # Colonne Dati
     c2.markdown(color_val(stats['p1m']))
     c3.markdown(color_val(stats['p3m']))
     c4.markdown(color_val(stats['p6m']))
     c5.markdown(color_val(stats['p1y']))
     
-    # Score
     score_color = "green" if stats['score'] > 0 else "red"
+    # Grassetto per lo score
     c6.markdown(f":{score_color}[**{stats['score']:.1f}**]")
     
-    # Bottone Espansione
     label = "⬇️" if expanded_key == name else "▶️"
     if c7.button(label, key=f"btn_{type_label}_{name}"):
         toggle_func(name)
@@ -173,8 +183,8 @@ def render_list_item(name, stats, expanded_key, toggle_func, type_label):
 
 # --- PAGINA DASHBOARD ---
 def render_dashboard():
-    st.title("🌍 Strategic Investment Terminal v6.1")
-    st.markdown("Analisi Trends Globali • Scoring Algoritmico • Multi-Timeframe")
+    st.title("🌍 Strategic Investment Terminal v7.0")
+    st.caption("Scoring Algoritmico Severo (Scala /3) • Ordine per Forza Relativa")
 
     # === SEZIONE 1: GEOGRAFIA ===
     st.header("1. 🗺️ Analisi Geografica (Global Ranking)")
@@ -182,25 +192,22 @@ def render_dashboard():
     st.divider()
 
     geo_list = []
-    with st.spinner('Analisi mercati globali in corso...'):
+    with st.spinner('Scaricamento dati macro...'):
         for area, data in db_structure['GEO'].items():
             stats = get_extended_data(data['proxy'])
             if stats: geo_list.append({**stats, "Area": area})
     
     df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
 
-    # SCROLLABLE CONTAINER
-    with st.container(height=500):
+    with st.container(height=600): # Aumentata altezza per vedere più stati
         for _, row in df_geo.iterrows():
             render_list_item(row['Area'], row, st.session_state.expanded_geo, toggle_geo, "geo")
             
-            # SPACCATO INTERNO
             if st.session_state.expanded_geo == row['Area']:
                 with st.container(border=True):
-                    st.caption(f"Strumenti consigliati per: {row['Area']}")
+                    st.caption(f"Strumenti per: {row['Area']}")
                     assets = db_structure['GEO'][row['Area']]['assets']
                     
-                    # Header Spaccato
                     h1, h2, h3, h4 = st.columns([3, 2, 2, 1])
                     h1.markdown("*Asset*")
                     h2.markdown("*Prezzo*")
@@ -227,15 +234,14 @@ def render_dashboard():
     st.divider()
     
     sect_list = []
-    with st.spinner('Scansione settoriale in corso...'):
+    with st.spinner('Scansione settoriale...'):
         for sect, data in db_structure['SECTOR'].items():
             stats = get_extended_data(data['proxy'])
             if stats: sect_list.append({**stats, "Settore": sect})
             
     df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
     
-    # SCROLLABLE CONTAINER
-    with st.container(height=500):
+    with st.container(height=600):
         for _, row in df_sect.iterrows():
             render_list_item(row['Settore'], row, st.session_state.expanded_sector, toggle_sector, "sect")
             
@@ -315,14 +321,13 @@ def render_detail():
             c1.metric("Prezzo Attuale", f"${curr:.2f}")
             c2.metric("Volatilità (Risk)", f"{df['Close'].pct_change().std()*np.sqrt(252)*100:.1f}%")
             
-            # RSI
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             c3.metric("RSI (14)", f"{rsi:.1f}")
-            c4.write("RSI < 30: Ipervenduto (Buy?)\nRSI > 70: Ipercomprato (Sell?)")
+            c4.write("RSI < 30: Ipervenduto\nRSI > 70: Ipercomprato")
             
             st.subheader("📅 Stagionalità")
             df['M'] = df.index.month
