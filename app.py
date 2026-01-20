@@ -3,14 +3,18 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import calendar
+from datetime import datetime, timedelta
 
 # --- CONFIGURAZIONE VISIVA ---
-st.set_page_config(page_title="Strategic Terminal v7.0 (Strict)", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v8.0", layout="wide")
 
 st.markdown("""
 <style>
-    .stButton>button { width: 100%; border-radius: 5px; height: 2em; padding: 0.1em; }
-    div[data-testid="stVerticalBlock"] > div { gap: 0.5rem; }
+    .stButton>button { width: 100%; border-radius: 4px; height: 1.8em; padding: 0px; font-size: 0.8rem; }
+    div[data-testid="stVerticalBlock"] > div { gap: 0.3rem; }
+    .trend-up { color: #00cc00; font-weight: bold; }
+    .trend-down { color: #ff3333; font-weight: bold; }
+    .score-box { border: 1px solid #444; padding: 5px; border-radius: 5px; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -20,109 +24,195 @@ if 'selected_asset' not in st.session_state: st.session_state.selected_asset = N
 if 'expanded_geo' not in st.session_state: st.session_state.expanded_geo = None
 if 'expanded_sector' not in st.session_state: st.session_state.expanded_sector = None
 
-# --- DATABASE ---
+# --- DATABASE ESTESO (5 ASSET PER CATEGORIA) ---
 db_structure = {
     "GEO": {
-        "USA (S&P 500)": { "proxy": "SPY", "assets": [{"t": "VOO", "n": "S&P 500", "type": "ETF"}, {"t": "QQQ", "n": "Nasdaq", "type": "ETF"}]},
-        "USA (Dow Jones)": { "proxy": "DIA", "assets": [{"t": "DIA", "n": "Dow Jones", "type": "ETF"}, {"t": "BA", "n": "Boeing", "type": "Stock"}]},
-        "Cina": { "proxy": "FXI", "assets": [{"t": "FXI", "n": "China Large-Cap", "type": "ETF"}, {"t": "BABA", "n": "Alibaba", "type": "Stock"}]},
-        "India": { "proxy": "INDA", "assets": [{"t": "INDA", "n": "India ETF", "type": "ETF"}, {"t": "EPI", "n": "India Earnings", "type": "ETF"}]},
-        "Giappone": { "proxy": "EWJ", "assets": [{"t": "EWJ", "n": "Japan ETF", "type": "ETF"}, {"t": "TM", "n": "Toyota", "type": "Stock"}]},
-        "Germania": { "proxy": "EWG", "assets": [{"t": "EWG", "n": "Germany ETF", "type": "ETF"}, {"t": "DAX", "n": "DAX Index", "type": "ETF"}]},
-        "Regno Unito": { "proxy": "EWU", "assets": [{"t": "EWU", "n": "UK ETF", "type": "ETF"}, {"t": "SHEL", "n": "Shell", "type": "Stock"}]},
-        "Francia": { "proxy": "EWQ", "assets": [{"t": "EWQ", "n": "France ETF", "type": "ETF"}, {"t": "MC.PA", "n": "LVMH", "type": "Stock"}]},
-        "Italia": { "proxy": "EWI", "assets": [{"t": "EWI", "n": "Italy ETF", "type": "ETF"}, {"t": "ISP.MI", "n": "Intesa", "type": "Stock"}]},
-        "Svizzera": { "proxy": "EWL", "assets": [{"t": "EWL", "n": "Switzerland ETF", "type": "ETF"}, {"t": "NESN.SW", "n": "Nestle", "type": "Stock"}]},
-        "Taiwan": { "proxy": "EWT", "assets": [{"t": "EWT", "n": "Taiwan ETF", "type": "ETF"}, {"t": "TSM", "n": "TSMC", "type": "Stock"}]},
-        "Corea del Sud": { "proxy": "EWY", "assets": [{"t": "EWY", "n": "Korea ETF", "type": "ETF"}, {"t": "005930.KS", "n": "Samsung", "type": "Stock"}]},
-        "Brasile": { "proxy": "EWZ", "assets": [{"t": "EWZ", "n": "Brazil ETF", "type": "ETF"}, {"t": "PBR", "n": "Petrobras", "type": "Stock"}]},
-        "Messico": { "proxy": "EWW", "assets": [{"t": "EWW", "n": "Mexico ETF", "type": "ETF"}, {"t": "AMX", "n": "America Movil", "type": "Stock"}]},
-        "Canada": { "proxy": "EWC", "assets": [{"t": "EWC", "n": "Canada ETF", "type": "ETF"}, {"t": "RY", "n": "Royal Bank", "type": "Stock"}]},
-        "Australia": { "proxy": "EWA", "assets": [{"t": "EWA", "n": "Australia ETF", "type": "ETF"}, {"t": "BHP", "n": "BHP", "type": "Stock"}]},
-        "Paesi Bassi": { "proxy": "EWN", "assets": [{"t": "EWN", "n": "Netherlands", "type": "ETF"}, {"t": "ASML", "n": "ASML", "type": "Stock"}]},
-        "Spagna": { "proxy": "EWP", "assets": [{"t": "EWP", "n": "Spain ETF", "type": "ETF"}, {"t": "BBVA", "n": "BBVA", "type": "Stock"}]},
-        "Svezia": { "proxy": "EWD", "assets": [{"t": "EWD", "n": "Sweden ETF", "type": "ETF"}, {"t": "ERIC", "n": "Ericsson", "type": "Stock"}]},
-        "Turchia": { "proxy": "TUR", "assets": [{"t": "TUR", "n": "Turkey ETF", "type": "ETF"}, {"t": "TKC", "n": "Turkcell", "type": "Stock"}]}
+        "USA (S&P 500)": { 
+            "proxy": "SPY", 
+            "assets": [
+                {"t": "VOO", "n": "Vanguard S&P 500", "type": "ETF", "isin": "IE00B3XXRP09"},
+                {"t": "RSP", "n": "Invesco Equal Weight", "type": "ETF", "isin": "IE00BNGJJT35"},
+                {"t": "QQQ", "n": "Invesco QQQ (Nasdaq)", "type": "ETF", "isin": "US46090E1038"},
+                {"t": "MSFT", "n": "Microsoft Corp", "type": "Stock", "isin": "US5949181045"},
+                {"t": "NVDA", "n": "NVIDIA Corp", "type": "Stock", "isin": "US67066G1040"}
+            ]
+        },
+        "India": { 
+            "proxy": "INDA", 
+            "assets": [
+                {"t": "INDA", "n": "iShares MSCI India", "type": "ETF", "isin": "IE00BZCQB185"},
+                {"t": "EPI", "n": "WisdomTree India Earn.", "type": "ETF", "isin": "US97717W4226"},
+                {"t": "FLIN", "n": "Franklin FTSE India", "type": "ETF", "isin": "IE00BHZRQZ17"},
+                {"t": "RIGD.IL", "n": "Reliance Industries", "type": "Stock", "isin": "US7594701077"},
+                {"t": "INFY", "n": "Infosys Ltd", "type": "Stock", "isin": "US4567881085"}
+            ]
+        },
+        "Europa (Aggregate)": { 
+            "proxy": "IEUR", 
+            "assets": [
+                {"t": "IEUR", "n": "iShares Core MSCI Europe", "type": "ETF", "isin": "IE00B4K48X80"},
+                {"t": "VGK", "n": "Vanguard FTSE Europe", "type": "ETF", "isin": "US9220428745"},
+                {"t": "FEZ", "n": "SPDR Euro Stoxx 50", "type": "ETF", "isin": "US78463X2027"},
+                {"t": "ASML", "n": "ASML Holding", "type": "Stock", "isin": "USN070592100"},
+                {"t": "NVO", "n": "Novo Nordisk", "type": "Stock", "isin": "US6701002056"}
+            ]
+        },
+        "Giappone": { 
+            "proxy": "EWJ", 
+            "assets": [
+                {"t": "EWJ", "n": "iShares MSCI Japan", "type": "ETF", "isin": "IE00B02KXH56"},
+                {"t": "DXJ", "n": "WisdomTree Japan Hedged", "type": "ETF", "isin": "US97717W8516"},
+                {"t": "BBJP", "n": "JPMorgan BetaBuilders Japan", "type": "ETF", "isin": "US46641Q3323"},
+                {"t": "TM", "n": "Toyota Motor", "type": "Stock", "isin": "US8923313071"},
+                {"t": "SONY", "n": "Sony Group", "type": "Stock", "isin": "US8356993076"}
+            ]
+        },
+        "Cina": { 
+            "proxy": "FXI", 
+            "assets": [
+                {"t": "FXI", "n": "iShares China Large-Cap", "type": "ETF", "isin": "IE00B02KXK85"},
+                {"t": "KWEB", "n": "KraneShares CSI China Internet", "type": "ETF", "isin": "US5007673065"},
+                {"t": "MCHI", "n": "iShares MSCI China", "type": "ETF", "isin": "US46429B6719"},
+                {"t": "BABA", "n": "Alibaba Group", "type": "Stock", "isin": "US01609W1027"},
+                {"t": "TCEHY", "n": "Tencent Holdings", "type": "Stock", "isin": "US88032Q1094"}
+            ]
+        },
+        "Germania": { "proxy": "EWG", "assets": [{"t": "EWG", "n": "Germany ETF", "type": "ETF", "isin": "US4642868065"}, {"t": "DAX", "n": "DAX Index ETF", "type": "ETF", "isin": "DE0005933931"}, {"t": "SIE.DE", "n": "Siemens", "type": "Stock", "isin": "DE0007236101"}, {"t": "SAP", "n": "SAP SE", "type": "Stock", "isin": "DE0007164600"}, {"t": "DTE.DE", "n": "Deutsche Telekom", "type": "Stock", "isin": "DE0005557508"}]},
+        "Regno Unito": { "proxy": "EWU", "assets": [{"t": "EWU", "n": "UK ETF", "type": "ETF", "isin": "US4642867075"}, {"t": "ISF.L", "n": "FTSE 100 ETF", "type": "ETF", "isin": "IE0005042456"}, {"t": "AZN", "n": "AstraZeneca", "type": "Stock", "isin": "US0463531089"}, {"t": "SHEL", "n": "Shell PLC", "type": "Stock", "isin": "US7802593050"}, {"t": "HSBC", "n": "HSBC Holdings", "type": "Stock", "isin": "US4042804066"}]},
+        "Italia": { "proxy": "EWI", "assets": [{"t": "EWI", "n": "Italy ETF", "type": "ETF", "isin": "US4642867315"}, {"t": "ISP.MI", "n": "Intesa Sanpaolo", "type": "Stock", "isin": "IT0000072618"}, {"t": "ENI.MI", "n": "Eni SpA", "type": "Stock", "isin": "IT0003132476"}, {"t": "RACE", "n": "Ferrari NV", "type": "Stock", "isin": "NL0011585146"}, {"t": "UCG.MI", "n": "UniCredit", "type": "Stock", "isin": "IT0004781412"}]},
     },
     "SECTOR": {
-        "Technology": {"proxy": "XLK", "assets": [{"t": "XLK", "n": "Tech ETF", "type": "ETF"}, {"t": "MSFT", "n": "Microsoft", "type": "Stock"}]},
-        "Semiconductors": {"proxy": "SMH", "assets": [{"t": "SMH", "n": "Semis ETF", "type": "ETF"}, {"t": "NVDA", "n": "Nvidia", "type": "Stock"}]},
-        "Aerospace & Def": {"proxy": "ITA", "assets": [{"t": "ITA", "n": "Defense ETF", "type": "ETF"}, {"t": "LMT", "n": "Lockheed", "type": "Stock"}]},
-        "Energy": {"proxy": "XLE", "assets": [{"t": "XLE", "n": "Energy ETF", "type": "ETF"}, {"t": "XOM", "n": "Exxon", "type": "Stock"}]},
-        "Financials": {"proxy": "XLF", "assets": [{"t": "XLF", "n": "Financial ETF", "type": "ETF"}, {"t": "JPM", "n": "JPMorgan", "type": "Stock"}]},
-        "Healthcare": {"proxy": "XLV", "assets": [{"t": "XLV", "n": "Health ETF", "type": "ETF"}, {"t": "LLY", "n": "Eli Lilly", "type": "Stock"}]},
-        "Industrials": {"proxy": "XLI", "assets": [{"t": "XLI", "n": "Industrial ETF", "type": "ETF"}, {"t": "CAT", "n": "Caterpillar", "type": "Stock"}]},
-        "Utilities": {"proxy": "XLU", "assets": [{"t": "XLU", "n": "Utilities ETF", "type": "ETF"}, {"t": "NEE", "n": "NextEra", "type": "Stock"}]},
-        "Materials": {"proxy": "XLB", "assets": [{"t": "XLB", "n": "Materials ETF", "type": "ETF"}, {"t": "LIN", "n": "Linde", "type": "Stock"}]},
-        "Real Estate": {"proxy": "XLRE", "assets": [{"t": "XLRE", "n": "Real Estate ETF", "type": "ETF"}, {"t": "PLD", "n": "Prologis", "type": "Stock"}]},
-        "Cons. Staples": {"proxy": "XLP", "assets": [{"t": "XLP", "n": "Staples ETF", "type": "ETF"}, {"t": "PG", "n": "Procter & Gamble", "type": "Stock"}]},
-        "Cons. Discret.": {"proxy": "XLY", "assets": [{"t": "XLY", "n": "Discret. ETF", "type": "ETF"}, {"t": "AMZN", "n": "Amazon", "type": "Stock"}]},
-        "Comm. Services": {"proxy": "XLC", "assets": [{"t": "XLC", "n": "Comm. ETF", "type": "ETF"}, {"t": "GOOGL", "n": "Google", "type": "Stock"}]},
-        "Gold Miners": {"proxy": "GDX", "assets": [{"t": "GDX", "n": "Gold Miners", "type": "ETF"}, {"t": "NEM", "n": "Newmont", "type": "Stock"}]},
-        "Biotech": {"proxy": "IBB", "assets": [{"t": "IBB", "n": "Biotech ETF", "type": "ETF"}, {"t": "VRTX", "n": "Vertex", "type": "Stock"}]},
-        "Regional Banking": {"proxy": "KRE", "assets": [{"t": "KRE", "n": "Regional Bank", "type": "ETF"}, {"t": "USB", "n": "US Bancorp", "type": "Stock"}]}
+        "Technology": { 
+            "proxy": "XLK", 
+            "assets": [
+                {"t": "XLK", "n": "Technology Select Sector", "type": "ETF", "isin": "US81369Y8030"},
+                {"t": "VGT", "n": "Vanguard Info Tech", "type": "ETF", "isin": "US92204A7028"},
+                {"t": "MSFT", "n": "Microsoft", "type": "Stock", "isin": "US5949181045"},
+                {"t": "AAPL", "n": "Apple Inc", "type": "Stock", "isin": "US0378331005"},
+                {"t": "ORCL", "n": "Oracle", "type": "Stock", "isin": "US68389X1054"}
+            ]
+        },
+        "Semiconductors": { 
+            "proxy": "SMH", 
+            "assets": [
+                {"t": "SMH", "n": "VanEck Semiconductor", "type": "ETF", "isin": "US92189F6768"},
+                {"t": "SOXX", "n": "iShares Semiconductor", "type": "ETF", "isin": "US4642875235"},
+                {"t": "NVDA", "n": "Nvidia", "type": "Stock", "isin": "US67066G1040"},
+                {"t": "AVGO", "n": "Broadcom", "type": "Stock", "isin": "US11135F1012"},
+                {"t": "TSM", "n": "TSMC", "type": "Stock", "isin": "US8740391003"}
+            ]
+        },
+        "Energy": { "proxy": "XLE", "assets": [{"t": "XLE", "n": "Energy Select", "type": "ETF", "isin": "US81369Y5069"}, {"t": "XOM", "n": "Exxon Mobil", "type": "Stock", "isin": "US30231G1022"}, {"t": "CVX", "n": "Chevron", "type": "Stock", "isin": "US1667641005"}, {"t": "SHEL", "n": "Shell", "type": "Stock", "isin": "US7802593050"}, {"t": "TTE", "n": "TotalEnergies", "type": "Stock", "isin": "US89151E1091"}]},
+        "Healthcare": { "proxy": "XLV", "assets": [{"t": "XLV", "n": "Health Care Select", "type": "ETF", "isin": "US81369Y2090"}, {"t": "LLY", "n": "Eli Lilly", "type": "Stock", "isin": "US5324571083"}, {"t": "UNH", "n": "UnitedHealth", "type": "Stock", "isin": "US91324P1021"}, {"t": "JNJ", "n": "Johnson & Johnson", "type": "Stock", "isin": "US4781601046"}, {"t": "PFE", "n": "Pfizer", "type": "Stock", "isin": "US7170811035"}]},
+        "Gold Miners": { "proxy": "GDX", "assets": [{"t": "GDX", "n": "VanEck Gold Miners", "type": "ETF", "isin": "US92189F1066"}, {"t": "GDXJ", "n": "Junior Gold Miners", "type": "ETF", "isin": "US92189F7915"}, {"t": "NEM", "n": "Newmont", "type": "Stock", "isin": "US6516391066"}, {"t": "GOLD", "n": "Barrick Gold", "type": "Stock", "isin": "CA0679011084"}, {"t": "AEM", "n": "Agnico Eagle", "type": "Stock", "isin": "CA0084741085"}]},
+        "Defense": { "proxy": "ITA", "assets": [{"t": "ITA", "n": "US Aerospace & Def", "type": "ETF", "isin": "US4642887602"}, {"t": "PPA", "n": "Invesco Aerospace", "type": "ETF", "isin": "US46137V1008"}, {"t": "LMT", "n": "Lockheed Martin", "type": "Stock", "isin": "US5398301094"}, {"t": "RTX", "n": "RTX Corp", "type": "Stock", "isin": "US75513E1010"}, {"t": "LDO.MI", "n": "Leonardo", "type": "Stock", "isin": "IT0003856405"}]},
     },
     "PILLARS": {
-        "1. DIFESA / AIRBAG": {
-            "main": {"t": "GLD", "n": "Oro Fisico"},
-            "alts": [{"t": "SHY", "n": "Bond USA 1-3Y"}, {"t": "SLV", "n": "Argento"}]
+        "1. DIFESA": {
+            "main": {"t": "GLD", "n": "SPDR Gold Shares (Oro Fisico)", "isin": "US78463V1070"},
+            "alts": [
+                {"t": "IAU", "n": "iShares Gold Trust", "isin": "US4642851053"},
+                {"t": "SHY", "n": "iShares 1-3 Year Treasury Bond", "isin": "US4642874576"},
+                {"t": "SLV", "n": "iShares Silver Trust", "isin": "US46428Q1094"}
+            ]
         },
-        "2. INFRA / REAL AI": {
-            "main": {"t": "COPX", "n": "Rame Miners"},
-            "alts": [{"t": "URA", "n": "Uranio"}, {"t": "PAVE", "n": "Infrastrutture"}]
+        "2. INFRA / AI": {
+            "main": {"t": "COPX", "n": "Global X Copper Miners", "isin": "US37954Y8306"},
+            "alts": [
+                {"t": "URA", "n": "Global X Uranium", "isin": "US37954Y8710"},
+                {"t": "PAVE", "n": "US Infrastructure Dev", "isin": "US37950E3661"},
+                {"t": "GRID", "n": "First Trust Smart Grid", "isin": "US33733E5092"}
+            ]
         },
-        "3. CICLICI / MOTORE": {
-            "main": {"t": "IWM", "n": "Small Caps USA"},
-            "alts": [{"t": "VTV", "n": "Value Stocks"}, {"t": "EEM", "n": "Emerging Mkts"}]
+        "3. CICLICI": {
+            "main": {"t": "IWM", "n": "iShares Russell 2000 (Small Cap)", "isin": "US4642876555"},
+            "alts": [
+                {"t": "VTV", "n": "Vanguard Value ETF", "isin": "US9229087443"},
+                {"t": "IJR", "n": "iShares Core S&P Small-Cap", "isin": "US4642878049"},
+                {"t": "EEM", "n": "iShares MSCI Emerging Markets", "isin": "US4642872349"}
+            ]
         },
         "4. SPECULATIVI": {
-            "main": {"t": "BTC-USD", "n": "Bitcoin"},
-            "alts": [{"t": "ETH-USD", "n": "Ethereum"}, {"t": "QQQ", "n": "Nasdaq 100"}]
+            "main": {"t": "BTC-USD", "n": "Bitcoin (Spot Price)", "isin": "N/A"},
+            "alts": [
+                {"t": "ETH-USD", "n": "Ethereum (Spot Price)", "isin": "N/A"},
+                {"t": "IBIT", "n": "iShares Bitcoin Trust", "isin": "US46438F1012"},
+                {"t": "TQQQ", "n": "ProShares UltraPro QQQ (3x)", "isin": "US74347X8314"}
+            ]
         }
     }
 }
 
-# --- MOTORE DI CALCOLO (ALGORITMO SEVERO) ---
+# --- MOTORE DI CALCOLO AVANZATO ---
 @st.cache_data(ttl=3600)
-def get_extended_data(ticker):
+def analyze_asset_complete(ticker):
     try:
+        # Scarica più storico per calcolare i punteggi passati
         df = yf.download(ticker, period="2y", progress=False)
         if len(df) == 0: return None
         
-        curr = float(df['Close'].iloc[-1])
+        # FIX FUSO ORARIO PER EVITARE CRASH
+        df.index = df.index.tz_localize(None)
         
-        def get_past_price(days):
-            idx = -days if len(df) > days else 0
-            return float(df['Close'].iloc[idx])
+        # Funzione helper per calcolare Score su un subset di dati
+        def calculate_score_on_subset(sub_df):
+            if len(sub_df) < 20: return 0
+            curr = float(sub_df['Close'].iloc[-1])
+            def get_px(d): return float(sub_df['Close'].iloc[-d]) if len(sub_df) > d else float(sub_df['Close'].iloc[0])
+            
+            p1m, p3m, p6m, p1y = get_px(22), get_px(65), get_px(130), get_px(252)
+            perf_1m = ((curr - p1m)/p1m)*100
+            perf_3m = ((curr - p3m)/p3m)*100
+            perf_6m = ((curr - p6m)/p6m)*100
+            perf_1y = ((curr - p1y)/p1y)*100
+            
+            # Algoritmo Severo
+            w_perf = (perf_3m*0.4) + (perf_1m*0.3) + (perf_6m*0.2) + (perf_1y*0.1)
+            return max(min(w_perf / 3.0, 10), -10)
 
-        p1m = get_past_price(22)
-        p3m = get_past_price(65)
-        p6m = get_past_price(130)
-        p1y = get_past_price(252)
+        # Calcolo Score Attuale
+        score_now = calculate_score_on_subset(df)
         
-        perf_1m = ((curr - p1m) / p1m) * 100
-        perf_3m = ((curr - p3m) / p3m) * 100
-        perf_6m = ((curr - p6m) / p6m) * 100
-        perf_1y = ((curr - p1y) / p1y) * 100
+        # Calcolo Score 1 Mese fa (tagliamo il dataframe)
+        idx_1m = -22 if len(df) > 22 else 0
+        score_1m_ago = calculate_score_on_subset(df.iloc[:idx_1m])
         
-        # --- NEW SCORING ALGORITHM (STRICT MODE) ---
-        # Vecchio metodo: somma ponderata diretta.
-        # Nuovo metodo: La somma ponderata viene divisa per un fattore di difficoltà (3.0)
-        # Esempio: Se un asset fa +10% su tutti i timeframe, il weighted è 10.
-        # Score finale = 10 / 3 = 3.3 (Voto basso/realistico)
-        # Per avere 10, devi avere una media pesata del 30%+.
+        # Calcolo Score 3 Mesi fa
+        idx_3m = -65 if len(df) > 65 else 0
+        score_3m_ago = calculate_score_on_subset(df.iloc[:idx_3m])
         
-        weighted_perf = (perf_3m * 0.4) + (perf_1m * 0.3) + (perf_6m * 0.2) + (perf_1y * 0.1)
-        raw_score = weighted_perf / 3.0 
+        # Trend dello Score
+        score_trend_1m = score_now - score_1m_ago
+        score_trend_3m = score_now - score_3m_ago
         
-        # Cap a +/- 10
-        score = max(min(raw_score, 10), -10)
+        # Trend Prezzo (Semplice per sub-menu)
+        curr_px = float(df['Close'].iloc[-1])
+        sma20 = float(df['Close'].rolling(20).mean().iloc[-1])
+        sma50 = float(df['Close'].rolling(50).mean().iloc[-1])
+        sma200 = float(df['Close'].rolling(200).mean().iloc[-1])
         
-        sma200_val = float(df['Close'].rolling(200).mean().iloc[-1]) if len(df) > 200 else p6m
-        trend = "BULL" if curr > sma200_val else "BEAR"
+        trend_short = "BULL" if curr_px > sma20 else "BEAR"
+        trend_med = "BULL" if curr_px > sma50 else "BEAR"
+        trend_long = "BULL" if curr_px > sma200 else "BEAR"
         
-        return {"price": curr, "score": score, "trend": trend, "p1m": perf_1m, "p3m": perf_3m, "p6m": perf_6m, "p1y": perf_1y}
-    except:
+        # Stagionalità (Mese migliore)
+        df['M'] = df.index.month
+        monthly_avg = df.groupby('M')['Close'].pct_change().mean()
+        best_month_idx = monthly_avg.idxmax()
+        best_month_name = calendar.month_abbr[best_month_idx]
+
+        return {
+            "price": curr_px,
+            "score": score_now,
+            "score_prev_1m": score_1m_ago,
+            "score_prev_3m": score_3m_ago,
+            "score_delta_1m": score_trend_1m,
+            "trend_s": trend_short,
+            "trend_m": trend_med,
+            "trend_l": trend_long,
+            "best_month": best_month_name
+        }
+    except Exception as e:
         return None
 
 # --- NAVIGAZIONE ---
@@ -139,131 +229,133 @@ def toggle_geo(area):
 def toggle_sector(sector):
     st.session_state.expanded_sector = sector if st.session_state.expanded_sector != sector else None
 
-# --- UI COMPONENTS ---
-def render_header_row():
-    c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
-    c1.markdown("**NOME ASSET**")
-    c2.markdown("**1M**")
-    c3.markdown("**3M**")
-    c4.markdown("**6M**")
-    c5.markdown("**1A**")
-    c6.markdown("**SCORE**")
-    c7.markdown("**ACT**")
-    return c1, c2, c3, c4, c5, c6, c7
-
-def color_val(val):
-    return f":green[{val:.1f}%]" if val > 0 else f":red[{val:.1f}%]"
-
-def render_list_item(name, stats, expanded_key, toggle_func, type_label):
-    # Logica Icone integrata (Niente righe doppie)
-    icon_prefix = ""
-    # Soglia alzata a 8.0 per rendere il "FIRE" esclusivo
-    if stats['score'] >= 8.0:
-        icon_prefix = "🔥 " 
-    elif stats['score'] <= -8.0:
-        icon_prefix = "❄️ "
-        
-    c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
-    
-    # Riga Unica Pulita
-    c1.markdown(f"**{icon_prefix}{name}**")
-    c2.markdown(color_val(stats['p1m']))
-    c3.markdown(color_val(stats['p3m']))
-    c4.markdown(color_val(stats['p6m']))
-    c5.markdown(color_val(stats['p1y']))
-    
-    score_color = "green" if stats['score'] > 0 else "red"
-    # Grassetto per lo score
-    c6.markdown(f":{score_color}[**{stats['score']:.1f}**]")
-    
-    label = "⬇️" if expanded_key == name else "▶️"
-    if c7.button(label, key=f"btn_{type_label}_{name}"):
-        toggle_func(name)
-        st.rerun()
+# --- UI HELPER ---
+def render_score_cell(score_curr, score_prev):
+    color = "green" if score_curr > 0 else "red"
+    arrow = "↗️" if score_curr > score_prev else "↘️"
+    return f":{color}[**{score_curr:.1f}**] {arrow}"
 
 # --- PAGINA DASHBOARD ---
 def render_dashboard():
-    st.title("🌍 Strategic Investment Terminal v7.0")
-    st.caption("Scoring Algoritmico Severo (Scala /3) • Ordine per Forza Relativa")
+    st.title("🌍 Strategic Terminal v8.0")
+    st.markdown("Scoring Dinamico (Direzionalità) • Database Esteso • Fix Analisi")
+
+    # HEADER TABELLA PRINCIPALE
+    def render_header():
+        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
+        c1.markdown("**ASSET / AREA**")
+        c2.markdown("**SCORE**")
+        c3.markdown("**1M AGO**")
+        c4.markdown("**3M AGO**")
+        c5.markdown("**STAGION.**")
+        c6.markdown("**ACT**")
+        st.divider()
 
     # === SEZIONE 1: GEOGRAFIA ===
-    st.header("1. 🗺️ Analisi Geografica (Global Ranking)")
-    render_header_row()
-    st.divider()
-
+    st.header("1. 🗺️ Analisi Geografica (Trend Score)")
+    render_header()
+    
     geo_list = []
-    with st.spinner('Scaricamento dati macro...'):
+    with st.spinner('Calcolo Score Storici (Geografia)...'):
         for area, data in db_structure['GEO'].items():
-            stats = get_extended_data(data['proxy'])
+            stats = analyze_asset_complete(data['proxy'])
             if stats: geo_list.append({**stats, "Area": area})
     
     df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
-
-    with st.container(height=600): # Aumentata altezza per vedere più stati
+    
+    with st.container(height=600):
         for _, row in df_geo.iterrows():
-            render_list_item(row['Area'], row, st.session_state.expanded_geo, toggle_geo, "geo")
+            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
             
+            # Nome con Icona
+            icon = "🔥" if row['score'] > 7.5 else ("❄️" if row['score'] < -7.5 else "")
+            c1.markdown(f"**{icon} {row['Area']}**")
+            
+            # Score Attuale e Passati
+            c2.markdown(render_score_cell(row['score'], row['score_prev_1m']))
+            c3.write(f"{row['score_prev_1m']:.1f}")
+            c4.write(f"{row['score_prev_3m']:.1f}")
+            
+            # Stagionalità
+            c5.write(f"Best: **{row['best_month']}**")
+            
+            # Bottone
+            lab = "⬇️" if st.session_state.expanded_geo == row['Area'] else "▶️"
+            if c6.button(lab, key=f"bg_{row['Area']}"): toggle_geo(row['Area']); st.rerun()
+
+            # SPACCATO (SUB-MENU)
             if st.session_state.expanded_geo == row['Area']:
                 with st.container(border=True):
-                    st.caption(f"Strumenti per: {row['Area']}")
-                    assets = db_structure['GEO'][row['Area']]['assets']
-                    
-                    h1, h2, h3, h4 = st.columns([3, 2, 2, 1])
-                    h1.markdown("*Asset*")
+                    st.caption(f"Top 5 Asset per: {row['Area']}")
+                    h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 1, 1, 1, 1])
+                    h1.markdown("*Nome Asset*")
                     h2.markdown("*Prezzo*")
-                    h3.markdown("*Trend*")
+                    h3.markdown("*Trend B.*")
+                    h4.markdown("*Trend M.*")
+                    h5.markdown("*Trend L.*")
                     
-                    for asset in assets:
-                        astats = get_extended_data(asset['t'])
-                        if astats:
-                            ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
-                            ac1.write(f"**{asset['n']}**")
-                            ac2.write(f"${astats['price']:.2f}")
-                            trend_icon = "🟢" if astats['trend'] == "BULL" else "🔴"
-                            ac3.write(f"{trend_icon} {astats['trend']}")
-                            if ac4.button("📊", key=f"d_g_{asset['t']}"):
-                                show_detail(asset['t'])
-                                st.rerun()
+                    assets = db_structure['GEO'][row['Area']]['assets']
+                    for a in assets:
+                        s = analyze_asset_complete(a['t'])
+                        if s:
+                            ac1, ac2, ac3, ac4, ac5, ac6 = st.columns([2, 1, 1, 1, 1, 1])
+                            ac1.write(f"**{a['n']}**")
+                            ac2.write(f"${s['price']:.2f}")
+                            
+                            def t_col(t): return "🟢" if t=="BULL" else "🔴"
+                            ac3.write(t_col(s['trend_s']))
+                            ac4.write(t_col(s['trend_m']))
+                            ac5.write(t_col(s['trend_l']))
+                            
+                            if ac6.button("📊", key=f"btn_g_{a['t']}"): show_detail(a['t']); st.rerun()
                 st.divider()
 
     st.markdown("---")
 
     # === SEZIONE 2: SETTORI ===
-    st.header("2. 🏭 Analisi Settoriale (GICS Ranking)")
-    render_header_row()
-    st.divider()
+    st.header("2. 🏭 Analisi Settoriale (Trend Score)")
+    render_header()
     
     sect_list = []
-    with st.spinner('Scansione settoriale...'):
+    with st.spinner('Calcolo Score Storici (Settori)...'):
         for sect, data in db_structure['SECTOR'].items():
-            stats = get_extended_data(data['proxy'])
+            stats = analyze_asset_complete(data['proxy'])
             if stats: sect_list.append({**stats, "Settore": sect})
             
     df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
     
     with st.container(height=600):
         for _, row in df_sect.iterrows():
-            render_list_item(row['Settore'], row, st.session_state.expanded_sector, toggle_sector, "sect")
+            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
+            icon = "🔥" if row['score'] > 7.5 else ("❄️" if row['score'] < -7.5 else "")
+            c1.markdown(f"**{icon} {row['Settore']}**")
+            c2.markdown(render_score_cell(row['score'], row['score_prev_1m']))
+            c3.write(f"{row['score_prev_1m']:.1f}")
+            c4.write(f"{row['score_prev_3m']:.1f}")
+            c5.write(f"Best: **{row['best_month']}**")
             
+            lab = "⬇️" if st.session_state.expanded_sector == row['Settore'] else "▶️"
+            if c6.button(lab, key=f"bs_{row['Settore']}"): toggle_sector(row['Settore']); st.rerun()
+
             if st.session_state.expanded_sector == row['Settore']:
                 with st.container(border=True):
+                    h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 1, 1, 1, 1])
+                    h1.markdown("*Nome Asset*")
+                    h2.markdown("*Trend B.*")
+                    h3.markdown("*Trend M.*")
+                    h4.markdown("*Trend L.*")
                     assets = db_structure['SECTOR'][row['Settore']]['assets']
-                    h1, h2, h3, h4 = st.columns([3, 2, 2, 1])
-                    h1.markdown("*Asset*")
-                    h2.markdown("*Prezzo*")
-                    h3.markdown("*Trend*")
-                    
-                    for asset in assets:
-                        astats = get_extended_data(asset['t'])
-                        if astats:
-                            ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
-                            ac1.write(f"**{asset['n']}**")
-                            ac2.write(f"${astats['price']:.2f}")
-                            trend_icon = "🟢" if astats['trend'] == "BULL" else "🔴"
-                            ac3.write(f"{trend_icon} {astats['trend']}")
-                            if ac4.button("📊", key=f"d_s_{asset['t']}"):
-                                show_detail(asset['t'])
-                                st.rerun()
+                    for a in assets:
+                        s = analyze_asset_complete(a['t'])
+                        if s:
+                            ac1, ac2, ac3, ac4, ac5, ac6 = st.columns([2, 1, 1, 1, 1, 1])
+                            ac1.write(f"**{a['n']}**")
+                            ac2.write(f"${s['price']:.2f}")
+                            def t_col(t): return "🟢" if t=="BULL" else "🔴"
+                            ac3.write(t_col(s['trend_s']))
+                            ac4.write(t_col(s['trend_m']))
+                            ac5.write(t_col(s['trend_l']))
+                            if ac6.button("📊", key=f"btn_s_{a['t']}"): show_detail(a['t']); st.rerun()
                 st.divider()
 
     st.markdown("---")
@@ -278,37 +370,39 @@ def render_dashboard():
             with st.container(border=True):
                 st.subheader(pillar_name)
                 main = data['main']
-                m_stats = get_extended_data(main['t'])
+                m_stats = analyze_asset_complete(main['t'])
                 
                 if m_stats:
-                    st.markdown(f"**👑 Main: {main['n']}**")
+                    st.markdown(f"**👑 {main['n']}**")
+                    st.caption(f"ISIN: {main['isin']}")
+                    
                     col_m1, col_m2 = st.columns(2)
                     col_m1.metric("Prezzo", f"${m_stats['price']:.0f}")
-                    col_m2.metric("Trend", m_stats['trend'], f"{m_stats['p1m']:.1f}%")
-                    
-                    if m_stats['trend'] == "BULL": st.success("ACCUMULARE")
-                    else: st.error("RIDURRE")
+                    # Mostriamo il trend di medio termine
+                    trend_icon = "🟢" if m_stats['trend_m'] == "BULL" else "🔴"
+                    col_m2.metric("Trend (50d)", m_stats['trend_m'])
                 
                 st.divider()
                 st.markdown("**Alternative:**")
                 for alt in data['alts']:
-                    a_stats = get_extended_data(alt['t'])
-                    if a_stats:
-                        icon = "🟢" if a_stats['trend'] == "BULL" else "🔴"
-                        st.write(f"{icon} **{alt['n']}**: {a_stats['p1m']:.1f}%")
-                        if st.button(f"Analizza {alt['t']}", key=f"alt_{alt['t']}"):
-                            show_detail(alt['t'])
-                            st.rerun()
+                    st.write(f"🔹 **{alt['n']}**")
+                    st.caption(f"ISIN: {alt['isin']}")
+                    if st.button(f"Grafico {alt['t']}", key=f"alt_{alt['t']}"):
+                        show_detail(alt['t'])
+                        st.rerun()
         i += 1
 
-# --- PAGINA DETTAGLIO ---
+# --- PAGINA DETTAGLIO (DEBUGGATA) ---
 def render_detail():
     tk = st.session_state.selected_asset
     st.button("🔙 TORNA ALLA DASHBOARD", on_click=back_to_dash)
     st.title(f"Analisi Approfondita: {tk}")
     
     try:
+        # Scarico dati e PULIZIA INDEX (Fix Crash)
         df = yf.download(tk, period="2y", progress=False)
+        df.index = df.index.tz_localize(None) 
+        
         if len(df) > 0:
             st.subheader("Grafico Tecnico & Medie Mobili")
             df['SMA50'] = df['Close'].rolling(50).mean()
@@ -321,6 +415,7 @@ def render_detail():
             c1.metric("Prezzo Attuale", f"${curr:.2f}")
             c2.metric("Volatilità (Risk)", f"{df['Close'].pct_change().std()*np.sqrt(252)*100:.1f}%")
             
+            # RSI
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -329,15 +424,15 @@ def render_detail():
             c3.metric("RSI (14)", f"{rsi:.1f}")
             c4.write("RSI < 30: Ipervenduto\nRSI > 70: Ipercomprato")
             
-            st.subheader("📅 Stagionalità")
+            st.subheader("📅 Stagionalità Mensile")
             df['M'] = df.index.month
             monthly = df.groupby('M')['Close'].apply(lambda x: (x.iloc[-1]-x.iloc[0])/x.iloc[0]*100)
-            monthly.index = [calendar.month_name[i] for i in monthly.index]
+            monthly.index = [calendar.month_abbr[i] for i in monthly.index]
             st.bar_chart(monthly)
         else:
-            st.error("Nessun dato trovato.")
-    except:
-        st.error("Errore nel caricamento del dettaglio.")
+            st.error("Nessun dato trovato per questo ticker.")
+    except Exception as e:
+        st.error(f"Errore nel caricamento del dettaglio: {e}")
 
 # --- MAIN ---
 if st.session_state.page == 'dashboard':
