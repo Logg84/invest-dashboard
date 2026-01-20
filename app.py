@@ -5,15 +5,14 @@ import numpy as np
 import calendar
 
 # --- CONFIGURAZIONE VISIVA ---
-st.set_page_config(page_title="Strategic Terminal v6.0", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v6.1", layout="wide")
 
-# --- CSS CUSTOM PER ABBELLIMENTO ---
+# --- CSS CUSTOM ---
+# Miglioriamo solo i bottoni e la spaziatura, niente sfondi colorati invasivi
 st.markdown("""
 <style>
-    .stButton>button { width: 100%; border-radius: 5px; }
-    .highlight-bull { background-color: #d4edda; padding: 10px; border-radius: 10px; border-left: 5px solid #28a745; margin-bottom: 5px; }
-    .highlight-bear { background-color: #f8d7da; padding: 10px; border-radius: 10px; border-left: 5px solid #dc3545; margin-bottom: 5px; }
-    .normal-row { padding: 5px; border-bottom: 1px solid #f0f0f0; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 2em; padding: 0.1em; }
+    div[data-testid="stVerticalBlock"] > div { gap: 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,7 +79,7 @@ db_structure = {
     }
 }
 
-# --- FUNZIONI CALCOLO (ROBUSTE) ---
+# --- FUNZIONI CALCOLO ---
 @st.cache_data(ttl=3600)
 def get_extended_data(ticker):
     try:
@@ -129,12 +128,13 @@ def toggle_sector(sector):
 
 # --- UI COMPONENTS ---
 def render_header_row():
+    # Intestazione allineata
     c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
     c1.markdown("**NOME ASSET**")
-    c2.markdown("**1 M**")
-    c3.markdown("**3 M**")
-    c4.markdown("**6 M**")
-    c5.markdown("**1 A**")
+    c2.markdown("**1M**")
+    c3.markdown("**3M**")
+    c4.markdown("**6M**")
+    c5.markdown("**1A**")
     c6.markdown("**SCORE**")
     c7.markdown("**ACT**")
     return c1, c2, c3, c4, c5, c6, c7
@@ -143,28 +143,29 @@ def color_val(val):
     return f":green[{val:.1f}%]" if val > 0 else f":red[{val:.1f}%]"
 
 def render_list_item(name, stats, expanded_key, toggle_func, type_label):
-    # Logica per evidenziazione estremi
-    row_bg = "normal-row"
-    emoji_prefix = ""
-    
+    # Logica icone (Hot/Cold) senza righe aggiuntive
+    icon_prefix = ""
     if stats['score'] >= 7.5:
-        st.markdown(f"<div class='highlight-bull'>🔥 <b>{name}</b> è in fase ESPANSIVA FORTE</div>", unsafe_allow_html=True)
-        emoji_prefix = "🔥 "
+        icon_prefix = "🔥 " # Hot
     elif stats['score'] <= -7.5:
-        st.markdown(f"<div class='highlight-bear'>❄️ <b>{name}</b> è in fase RIBASSISTA FORTE</div>", unsafe_allow_html=True)
-        emoji_prefix = "❄️ "
+        icon_prefix = "❄️ " # Cold
         
     c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
     
-    c1.markdown(f"**{emoji_prefix}{name}**")
+    # Colonna 1: Nome con icona integrata (NESSUN MARKDOWN EXTRA)
+    c1.markdown(f"**{icon_prefix}{name}**")
+    
+    # Colonne Dati
     c2.markdown(color_val(stats['p1m']))
     c3.markdown(color_val(stats['p3m']))
     c4.markdown(color_val(stats['p6m']))
     c5.markdown(color_val(stats['p1y']))
     
+    # Score
     score_color = "green" if stats['score'] > 0 else "red"
     c6.markdown(f":{score_color}[**{stats['score']:.1f}**]")
     
+    # Bottone Espansione
     label = "⬇️" if expanded_key == name else "▶️"
     if c7.button(label, key=f"btn_{type_label}_{name}"):
         toggle_func(name)
@@ -172,7 +173,7 @@ def render_list_item(name, stats, expanded_key, toggle_func, type_label):
 
 # --- PAGINA DASHBOARD ---
 def render_dashboard():
-    st.title("🌍 Strategic Investment Terminal v6.0")
+    st.title("🌍 Strategic Investment Terminal v6.1")
     st.markdown("Analisi Trends Globali • Scoring Algoritmico • Multi-Timeframe")
 
     # === SEZIONE 1: GEOGRAFIA ===
@@ -180,7 +181,6 @@ def render_dashboard():
     render_header_row()
     st.divider()
 
-    # Pre-caricamento e ordinamento
     geo_list = []
     with st.spinner('Analisi mercati globali in corso...'):
         for area, data in db_structure['GEO'].items():
@@ -189,21 +189,28 @@ def render_dashboard():
     
     df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
 
-    # SCROLLABLE CONTAINER (Lista Scorrevole)
+    # SCROLLABLE CONTAINER
     with st.container(height=500):
         for _, row in df_geo.iterrows():
             render_list_item(row['Area'], row, st.session_state.expanded_geo, toggle_geo, "geo")
             
-            # SPACCATO
+            # SPACCATO INTERNO
             if st.session_state.expanded_geo == row['Area']:
                 with st.container(border=True):
                     st.caption(f"Strumenti consigliati per: {row['Area']}")
                     assets = db_structure['GEO'][row['Area']]['assets']
+                    
+                    # Header Spaccato
+                    h1, h2, h3, h4 = st.columns([3, 2, 2, 1])
+                    h1.markdown("*Asset*")
+                    h2.markdown("*Prezzo*")
+                    h3.markdown("*Trend*")
+                    
                     for asset in assets:
                         astats = get_extended_data(asset['t'])
                         if astats:
                             ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
-                            ac1.write(f"**{asset['n']}** ({asset['type']})")
+                            ac1.write(f"**{asset['n']}**")
                             ac2.write(f"${astats['price']:.2f}")
                             trend_icon = "🟢" if astats['trend'] == "BULL" else "🔴"
                             ac3.write(f"{trend_icon} {astats['trend']}")
@@ -235,6 +242,11 @@ def render_dashboard():
             if st.session_state.expanded_sector == row['Settore']:
                 with st.container(border=True):
                     assets = db_structure['SECTOR'][row['Settore']]['assets']
+                    h1, h2, h3, h4 = st.columns([3, 2, 2, 1])
+                    h1.markdown("*Asset*")
+                    h2.markdown("*Prezzo*")
+                    h3.markdown("*Trend*")
+                    
                     for asset in assets:
                         astats = get_extended_data(asset['t'])
                         if astats:
@@ -303,14 +315,14 @@ def render_detail():
             c1.metric("Prezzo Attuale", f"${curr:.2f}")
             c2.metric("Volatilità (Risk)", f"{df['Close'].pct_change().std()*np.sqrt(252)*100:.1f}%")
             
-            # Calcolo RSI (Indicatore Tecnico Extra)
+            # RSI
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             c3.metric("RSI (14)", f"{rsi:.1f}")
-            c4.write("RSI < 30: Ipervenduto (Buy opportunity?)\nRSI > 70: Ipercomprato (Sell?)")
+            c4.write("RSI < 30: Ipervenduto (Buy?)\nRSI > 70: Ipercomprato (Sell?)")
             
             st.subheader("📅 Stagionalità")
             df['M'] = df.index.month
