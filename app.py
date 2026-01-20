@@ -5,7 +5,7 @@ import numpy as np
 import calendar
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Strategic Terminal v5.0", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v5.1", layout="wide")
 
 # --- STATO DELLA NAVIGAZIONE ---
 if 'page' not in st.session_state: st.session_state.page = 'dashboard'
@@ -13,7 +13,7 @@ if 'selected_asset' not in st.session_state: st.session_state.selected_asset = N
 if 'expanded_geo' not in st.session_state: st.session_state.expanded_geo = None
 if 'expanded_sector' not in st.session_state: st.session_state.expanded_sector = None
 
-# --- DATABASE COMPLETO (EUROPA ESPLOSA & TUTTI I SETTORI) ---
+# --- DATABASE COMPLETO ---
 db_structure = {
     "GEO": {
         "USA (S&P 500)": {
@@ -150,45 +150,57 @@ db_structure = {
 # --- FUNZIONI CALCOLO ---
 @st.cache_data(ttl=3600)
 def get_extended_data(ticker):
-    # Scarichiamo 2 anni di dati per calcolare tutto
-    df = yf.download(ticker, period="2y", progress=False)
+    # Scarica dati
+    try:
+        df = yf.download(ticker, period="2y", progress=False)
+    except Exception:
+        return None
+
     if len(df) == 0: return None
     
-    curr = float(df['Close'].iloc[-1])
-    
-    # Helper per trovare il prezzo N giorni fa
-    def get_past_price(days):
-        if len(df) > days: return float(df['Close'].iloc[-days])
-        return float(df['Close'].iloc[0])
+    # FIX: Forziamo la conversione a float scalare per evitare errori con Pandas Series
+    try:
+        curr = float(df['Close'].iloc[-1])
+        
+        # Helper per trovare il prezzo N giorni fa (Safety check)
+        def get_past_price(days):
+            if len(df) > days: 
+                return float(df['Close'].iloc[-days])
+            return float(df['Close'].iloc[0])
 
-    p1m = get_past_price(22)  # ~1 mese di trading
-    p3m = get_past_price(65)  # ~3 mesi
-    p6m = get_past_price(130) # ~6 mesi
-    p1y = get_past_price(252) # ~1 anno
-    
-    perf_1m = ((curr - p1m) / p1m) * 100
-    perf_3m = ((curr - p3m) / p3m) * 100
-    perf_6m = ((curr - p6m) / p6m) * 100
-    perf_1y = ((curr - p1y) / p1y) * 100
-    
-    # Score Ponderato (-10/+10)
-    # Diamo più peso al breve (3m) ma consideriamo il trend annuale
-    raw_score = (perf_3m * 0.4) + (perf_1m * 0.3) + (perf_6m * 0.2) + (perf_1y * 0.1)
-    score = max(min(raw_score, 10), -10)
-    
-    # Trend Semplice
-    sma200 = df['Close'].rolling(200).mean().iloc[-1] if len(df) > 200 else p6m
-    trend = "BULL" if curr > sma200 else "BEAR"
-    
-    return {
-        "price": curr,
-        "score": score,
-        "trend": trend,
-        "p1m": perf_1m,
-        "p3m": perf_3m,
-        "p6m": perf_6m,
-        "p1y": perf_1y
-    }
+        p1m = get_past_price(22)
+        p3m = get_past_price(65)
+        p6m = get_past_price(130)
+        p1y = get_past_price(252)
+        
+        perf_1m = ((curr - p1m) / p1m) * 100
+        perf_3m = ((curr - p3m) / p3m) * 100
+        perf_6m = ((curr - p6m) / p6m) * 100
+        perf_1y = ((curr - p1y) / p1y) * 100
+        
+        # Score
+        raw_score = (perf_3m * 0.4) + (perf_1m * 0.3) + (perf_6m * 0.2) + (perf_1y * 0.1)
+        score = max(min(raw_score, 10), -10)
+        
+        # Trend - FIX per l'errore ValueError
+        if len(df) > 200:
+            sma200_val = float(df['Close'].rolling(200).mean().iloc[-1])
+        else:
+            sma200_val = p6m
+            
+        trend = "BULL" if curr > sma200_val else "BEAR"
+        
+        return {
+            "price": curr,
+            "score": score,
+            "trend": trend,
+            "p1m": perf_1m,
+            "p3m": perf_3m,
+            "p6m": perf_6m,
+            "p1y": perf_1y
+        }
+    except Exception as e:
+        return None
 
 # --- NAVIGAZIONE ---
 def show_detail(ticker):
@@ -209,10 +221,9 @@ def render_dashboard():
     st.title("🌍 Global Strategy Terminal")
     st.markdown("Analisi Multi-Timeframe e Multi-Asset Class")
 
-    # === SEZIONE 1: GEOGRAFIA (DETTAGLIATA) ===
+    # === SEZIONE 1: GEOGRAFIA ===
     st.header("1. Analisi Geografica (Performance)")
     
-    # Header Colonne
     c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
     c1.markdown("**NAZIONE / AREA**")
     c2.markdown("**1 M**")
@@ -223,67 +234,64 @@ def render_dashboard():
     c7.markdown("**ACTION**")
     st.divider()
 
-    # Calcolo Dati
     geo_list = []
     for area, data in db_structure['GEO'].items():
         stats = get_extended_data(data['proxy'])
         if stats:
             geo_list.append({**stats, "Area": area})
     
-    # Ordinamento per Score
-    df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
+    if not geo_list:
+        st.warning("Caricamento dati in corso o errore temporaneo API...")
+    else:
+        df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
 
-    for _, row in df_geo.iterrows():
-        c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
-        
-        c1.subheader(row['Area'])
-        
-        # Colora le performance
-        def color_val(val):
-            return f":green[{val:.1f}%]" if val > 0 else f":red[{val:.1f}%]"
-
-        c2.markdown(color_val(row['p1m']))
-        c3.markdown(color_val(row['p3m']))
-        c4.markdown(color_val(row['p6m']))
-        c5.markdown(color_val(row['p1y']))
-        
-        score_color = "green" if row['score'] > 0 else "red"
-        c6.markdown(f":{score_color}[**{row['score']:.1f}**]")
-        
-        label = "⬇️" if st.session_state.expanded_geo == row['Area'] else "▶️"
-        if c7.button(label, key=f"btn_geo_{row['Area']}"):
-            toggle_geo(row['Area'])
-            st.rerun()
+        for _, row in df_geo.iterrows():
+            c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1, 1, 1, 1, 1])
+            c1.subheader(row['Area'])
             
-        # SPACCATO GEO
-        if st.session_state.expanded_geo == row['Area']:
-            with st.container(border=True):
-                st.info(f"Top Asset per: {row['Area']}")
-                assets = db_structure['GEO'][row['Area']]['assets']
-                ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
-                ac1.caption("NOME")
-                ac2.caption("TIPO")
-                ac3.caption("PREZZO")
+            def color_val(val):
+                return f":green[{val:.1f}%]" if val > 0 else f":red[{val:.1f}%]"
+
+            c2.markdown(color_val(row['p1m']))
+            c3.markdown(color_val(row['p3m']))
+            c4.markdown(color_val(row['p6m']))
+            c5.markdown(color_val(row['p1y']))
+            
+            score_color = "green" if row['score'] > 0 else "red"
+            c6.markdown(f":{score_color}[**{row['score']:.1f}**]")
+            
+            label = "⬇️" if st.session_state.expanded_geo == row['Area'] else "▶️"
+            if c7.button(label, key=f"btn_geo_{row['Area']}"):
+                toggle_geo(row['Area'])
+                st.rerun()
                 
-                for asset in assets:
-                    astats = get_extended_data(asset['t'])
-                    if astats:
-                        ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
-                        ac1.write(f"**{asset['n']}**")
-                        ac2.write(asset['type'])
-                        ac3.write(f"${astats['price']:.2f}")
-                        if ac4.button("📊", key=f"d_g_{asset['t']}"):
-                            show_detail(asset['t'])
-                            st.rerun()
-            st.divider()
+            if st.session_state.expanded_geo == row['Area']:
+                with st.container(border=True):
+                    st.info(f"Top Asset per: {row['Area']}")
+                    assets = db_structure['GEO'][row['Area']]['assets']
+                    ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
+                    ac1.caption("NOME")
+                    ac2.caption("TIPO")
+                    ac3.caption("PREZZO")
+                    
+                    for asset in assets:
+                        astats = get_extended_data(asset['t'])
+                        if astats:
+                            ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
+                            ac1.write(f"**{asset['n']}**")
+                            ac2.write(asset['type'])
+                            ac3.write(f"${astats['price']:.2f}")
+                            if ac4.button("📊", key=f"d_g_{asset['t']}"):
+                                show_detail(asset['t'])
+                                st.rerun()
+                st.divider()
 
     st.markdown("---")
 
-    # === SEZIONE 2: SETTORI (SCROLLABLE & COMPLETA) ===
+    # === SEZIONE 2: SETTORI ===
     st.header("2. Analisi Settoriale (Completa)")
     st.caption("Tutti i settori GICS ordinati per forza relativa.")
     
-    # Header
     s1, s2, s3, s4 = st.columns([3, 1, 1, 1])
     s1.markdown("**SETTORE**")
     s2.markdown("**SCORE**")
@@ -297,41 +305,40 @@ def render_dashboard():
         if stats:
             sect_list.append({**stats, "Settore": sect})
             
-    df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
-    
-    # Scrollable container simulato (Streamlit lo gestisce nativamente se la pagina è lunga)
-    for _, row in df_sect.iterrows():
-        s1, s2, s3, s4 = st.columns([3, 1, 1, 1])
-        s1.write(f"**{row['Settore']}**")
-        
-        sc_color = "green" if row['score'] > 0 else "red"
-        s2.markdown(f":{sc_color}[{row['score']:.1f}]")
-        
-        p_color = "green" if row['p1m'] > 0 else "red"
-        s3.markdown(f":{p_color}[{row['p1m']:.1f}%]")
-        
-        lab = "⬇️" if st.session_state.expanded_sector == row['Settore'] else "▶️"
-        if s4.button(lab, key=f"btn_sec_{row['Settore']}"):
-            toggle_sector(row['Settore'])
-            st.rerun()
+    if sect_list:
+        df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
+        for _, row in df_sect.iterrows():
+            s1, s2, s3, s4 = st.columns([3, 1, 1, 1])
+            s1.write(f"**{row['Settore']}**")
             
-        if st.session_state.expanded_sector == row['Settore']:
-            with st.container(border=True):
-                assets = db_structure['SECTOR'][row['Settore']]['assets']
-                for asset in assets:
-                    astats = get_extended_data(asset['t'])
-                    if astats:
-                        c_a, c_b, c_c = st.columns([4, 2, 1])
-                        c_a.write(f"{asset['n']} ({asset['t']})")
-                        c_b.write(f"${astats['price']:.2f}")
-                        if c_c.button("📊", key=f"d_s_{asset['t']}"):
-                            show_detail(asset['t'])
-                            st.rerun()
-            st.divider()
+            sc_color = "green" if row['score'] > 0 else "red"
+            s2.markdown(f":{sc_color}[{row['score']:.1f}]")
+            
+            p_color = "green" if row['p1m'] > 0 else "red"
+            s3.markdown(f":{p_color}[{row['p1m']:.1f}%]")
+            
+            lab = "⬇️" if st.session_state.expanded_sector == row['Settore'] else "▶️"
+            if s4.button(lab, key=f"btn_sec_{row['Settore']}"):
+                toggle_sector(row['Settore'])
+                st.rerun()
+                
+            if st.session_state.expanded_sector == row['Settore']:
+                with st.container(border=True):
+                    assets = db_structure['SECTOR'][row['Settore']]['assets']
+                    for asset in assets:
+                        astats = get_extended_data(asset['t'])
+                        if astats:
+                            c_a, c_b, c_c = st.columns([4, 2, 1])
+                            c_a.write(f"{asset['n']} ({asset['t']})")
+                            c_b.write(f"${astats['price']:.2f}")
+                            if c_c.button("📊", key=f"d_s_{asset['t']}"):
+                                show_detail(asset['t'])
+                                st.rerun()
+                st.divider()
 
     st.markdown("---")
 
-    # === SEZIONE 3: I 4 PILASTRI (CON ALTERNATIVE) ===
+    # === SEZIONE 3: I 4 PILASTRI ===
     st.header("3. I 4 Pilastri & Alternative")
     
     cols = st.columns(4)
@@ -340,8 +347,6 @@ def render_dashboard():
         with cols[i]:
             with st.container(border=True):
                 st.subheader(pillar_name)
-                
-                # Main Asset
                 main = data['main']
                 m_stats = get_extended_data(main['t'])
                 
@@ -375,27 +380,29 @@ def render_detail():
     st.button("🔙 TORNA ALLA DASHBOARD", on_click=back_to_dash)
     st.title(f"Analisi Approfondita: {tk}")
     
-    df = yf.download(tk, period="2y", progress=False)
-    if len(df) > 0:
-        # Grafico
-        st.subheader("Prezzo & Medie Mobili")
-        df['SMA50'] = df['Close'].rolling(50).mean()
-        df['SMA200'] = df['Close'].rolling(200).mean()
-        st.line_chart(df[['Close', 'SMA50', 'SMA200']])
-        
-        # Statistiche
-        st.subheader("Statistiche Chiave")
-        curr = df['Close'].iloc[-1]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Prezzo", f"${curr:.2f}")
-        c2.metric("Volatilità (Annuale)", f"{df['Close'].pct_change().std()*np.sqrt(252)*100:.1f}%")
-        
-        # Stagionalità
-        st.subheader("📅 Stagionalità")
-        df['M'] = df.index.month
-        monthly = df.groupby('M')['Close'].apply(lambda x: (x.iloc[-1]-x.iloc[0])/x.iloc[0]*100)
-        monthly.index = [calendar.month_name[i] for i in monthly.index]
-        st.bar_chart(monthly)
+    try:
+        df = yf.download(tk, period="2y", progress=False)
+        if len(df) > 0:
+            st.subheader("Prezzo & Medie Mobili")
+            df['SMA50'] = df['Close'].rolling(50).mean()
+            df['SMA200'] = df['Close'].rolling(200).mean()
+            st.line_chart(df[['Close', 'SMA50', 'SMA200']])
+            
+            st.subheader("Statistiche Chiave")
+            curr = float(df['Close'].iloc[-1])
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Prezzo", f"${curr:.2f}")
+            c2.metric("Volatilità (Annuale)", f"{df['Close'].pct_change().std()*np.sqrt(252)*100:.1f}%")
+            
+            st.subheader("📅 Stagionalità")
+            df['M'] = df.index.month
+            monthly = df.groupby('M')['Close'].apply(lambda x: (x.iloc[-1]-x.iloc[0])/x.iloc[0]*100)
+            monthly.index = [calendar.month_name[i] for i in monthly.index]
+            st.bar_chart(monthly)
+        else:
+            st.error("Nessun dato trovato.")
+    except Exception:
+        st.error("Errore nel caricamento del dettaglio.")
 
 # --- MAIN ---
 if st.session_state.page == 'dashboard':
