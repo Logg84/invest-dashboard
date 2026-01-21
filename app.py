@@ -7,19 +7,16 @@ import time
 import random
 
 # --- CONFIGURAZIONE VISIVA ---
-st.set_page_config(page_title="Strategic Terminal v11.0 (Stealth)", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v12.0 (Link-Out)", layout="wide")
+
 st.markdown("""
 <style>
-    .stButton>button { width: 100%; border-radius: 4px; height: 1.8em; padding: 0px; font-size: 0.8rem; }
+    .stLinkButton > a { width: 100%; border-radius: 4px; text-align: center; }
     div[data-testid="stVerticalBlock"] > div { gap: 0.3rem; }
-    .trend-up { color: #00cc00; font-weight: bold; }
-    .trend-down { color: #ff3333; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- STATO NAVIGAZIONE ---
-if 'page' not in st.session_state: st.session_state.page = 'dashboard'
-if 'selected_asset' not in st.session_state: st.session_state.selected_asset = None 
 if 'expanded_geo' not in st.session_state: st.session_state.expanded_geo = None
 if 'expanded_sector' not in st.session_state: st.session_state.expanded_sector = None
 
@@ -89,33 +86,22 @@ db_structure = {
     }
 }
 
-# --- MOTORE DI SCARICO "STEALTH" (Use Ticker().history) ---
+# --- ENGINE: SCARICA SOLO I PROXY PRINCIPALI ---
 def get_safe_history(ticker_symbol):
-    """
-    Scarica i dati cercando di evadere il rate limit.
-    Usa .history() invece di .download() che è spesso più tollerante.
-    """
-    # Pausa casuale per sembrare umano
-    time.sleep(random.uniform(0.2, 0.8)) 
-    
+    """Scarica dati con retry minimi, solo per i proxy"""
+    time.sleep(random.uniform(0.1, 0.4)) 
     try:
         tk = yf.Ticker(ticker_symbol)
         df = tk.history(period="2y")
-        
-        # Se vuoto, riprova una volta con pausa più lunga
-        if df.empty:
-            time.sleep(2)
-            df = tk.history(period="2y")
-            
-        if not df.empty and df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
-            
+        if df.empty: return pd.DataFrame()
+        if df.index.tz is not None: df.index = df.index.tz_localize(None)
         return df
-    except Exception:
+    except:
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
-def analyze_asset_complete(ticker):
+def analyze_proxy(ticker):
+    # Questa funzione gira SOLO per i "Capi Gruppo" (circa 25 chiamate totali)
     df = get_safe_history(ticker)
     
     if df.empty or len(df) < 20: 
@@ -145,40 +131,23 @@ def analyze_asset_complete(ticker):
         idx_3m = -65 if len(df) > 65 else 0
         score_3m_ago = calculate_score_on_subset(df.iloc[:idx_3m])
         
-        curr_px = float(df['Close'].iloc[-1])
-        sma20 = float(df['Close'].rolling(20).mean().iloc[-1])
-        sma50 = float(df['Close'].rolling(50).mean().iloc[-1])
-        sma200 = float(df['Close'].rolling(200).mean().iloc[-1])
-        
-        trend_short = "BULL" if curr_px > sma20 else "BEAR"
-        trend_med = "BULL" if curr_px > sma50 else "BEAR"
-        trend_long = "BULL" if curr_px > sma200 else "BEAR"
-        
         df['M'] = df.index.month
         monthly_avg = df.groupby('M')['Close'].pct_change().mean()
         best_month_idx = monthly_avg.idxmax()
         best_month_name = calendar.month_abbr[best_month_idx]
 
         return {
-            "price": curr_px,
             "score": score_now,
             "score_prev_1m": score_1m_ago,
             "score_prev_3m": score_3m_ago,
-            "trend_s": trend_short,
-            "trend_m": trend_med,
-            "trend_l": trend_long,
             "best_month": best_month_name
         }
     except Exception:
         return None
 
-# --- NAVIGAZIONE ---
-def show_detail(ticker):
-    st.session_state.selected_asset = ticker
-    st.session_state.page = 'detail'
-
-def back_to_dash():
-    st.session_state.page = 'dashboard'
+# --- UI HELPERS ---
+def get_yahoo_link(ticker):
+    return f"https://finance.yahoo.com/quote/{ticker}"
 
 def toggle_geo(area):
     st.session_state.expanded_geo = area if st.session_state.expanded_geo != area else None
@@ -186,214 +155,156 @@ def toggle_geo(area):
 def toggle_sector(sector):
     st.session_state.expanded_sector = sector if st.session_state.expanded_sector != sector else None
 
-# --- UI HELPER ---
 def render_score_cell(score_curr, score_prev):
     color = "green" if score_curr > 0 else "red"
     arrow = "↗️" if score_curr > score_prev else "↘️"
     return f":{color}[**{score_curr:.1f}**] {arrow}"
 
-# --- PAGINA DASHBOARD ---
-def render_dashboard():
-    st.title("🌍 Strategic Terminal v11.0")
-    st.caption("Mode: Stealth (Rallentato per stabilità)")
+# --- DASHBOARD ---
+st.title("🌍 Strategic Terminal v12.0")
+st.caption("Status: Stable • Mode: Link-Out to Yahoo Finance")
 
-    def render_header():
+def render_header():
+    c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
+    c1.markdown("**ASSET / AREA**")
+    c2.markdown("**SCORE**")
+    c3.markdown("**1M AGO**")
+    c4.markdown("**3M AGO**")
+    c5.markdown("**STAGION.**")
+    c6.markdown("**ACT**")
+    st.divider()
+
+# 1. GEOGRAFIA
+st.header("1. 🗺️ Analisi Geografica")
+render_header()
+
+geo_list = []
+# Progress bar solo per il caricamento iniziale (veloce)
+proxies = list(db_structure['GEO'].items())
+progress = st.progress(0)
+
+for i, (area, data) in enumerate(proxies):
+    stats = analyze_proxy(data['proxy'])
+    # Se fallisce, creiamo un oggetto "vuoto" ma visualizzabile
+    if not stats:
+        stats = {"score": 0, "score_prev_1m": 0, "score_prev_3m": 0, "best_month": "N/A"}
+    geo_list.append({**stats, "Area": area})
+    progress.progress((i + 1) / len(proxies))
+
+progress.empty()
+df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
+
+with st.container(height=600):
+    for _, row in df_geo.iterrows():
         c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
-        c1.markdown("**ASSET / AREA**")
-        c2.markdown("**SCORE**")
-        c3.markdown("**1M AGO**")
-        c4.markdown("**3M AGO**")
-        c5.markdown("**STAGION.**")
-        c6.markdown("**ACT**")
-        st.divider()
-
-    # === SEZIONE 1: GEOGRAFIA ===
-    st.header("1. 🗺️ Analisi Geografica")
-    render_header()
-    
-    geo_list = []
-    
-    # BARRA DI PROGRESSO (Perché sarà lento)
-    proxies = list(db_structure['GEO'].items())
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for i, (area, data) in enumerate(proxies):
-        # status_text.text(f"Analisi: {area}...") # Rimosso per pulizia
-        stats = analyze_asset_complete(data['proxy'])
-        if stats: 
-            geo_list.append({**stats, "Area": area})
-        progress_bar.progress((i + 1) / len(proxies))
-    
-    status_text.empty()
-    progress_bar.empty()
-    
-    if not geo_list:
-        st.error("Nessun dato recuperato. Yahoo Finance potrebbe aver bloccato temporaneamente l'IP. Riprova tra 5 minuti.")
-    else:
-        df_geo = pd.DataFrame(geo_list).sort_values(by="score", ascending=False)
         
-        with st.container(height=600):
-            for _, row in df_geo.iterrows():
-                c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
-                icon = "🔥" if row['score'] > 7.0 else ("❄️" if row['score'] < -7.0 else "")
-                c1.markdown(f"**{icon} {row['Area']}**")
-                c2.markdown(render_score_cell(row['score'], row['score_prev_1m']))
-                c3.write(f"{row['score_prev_1m']:.1f}")
-                c4.write(f"{row['score_prev_3m']:.1f}")
-                c5.write(f"Best: **{row['best_month']}**")
-                
-                lab = "⬇️" if st.session_state.expanded_geo == row['Area'] else "▶️"
-                if c6.button(lab, key=f"bg_{row['Area']}"): toggle_geo(row['Area']); st.rerun()
-
-                if st.session_state.expanded_geo == row['Area']:
-                    with st.container(border=True):
-                        st.info(f"Recupero dettagli {row['Area']}...")
-                        h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 1, 1, 1, 1])
-                        h1.markdown("*Asset*")
-                        h2.markdown("*Prezzo*")
-                        h3.markdown("*Trend B.*")
-                        h4.markdown("*Trend M.*")
-                        h5.markdown("*Trend L.*")
-                        
-                        assets = db_structure['GEO'][row['Area']]['assets']
-                        for a in assets:
-                            s = analyze_asset_complete(a['t'])
-                            if s:
-                                ac1, ac2, ac3, ac4, ac5, ac6 = st.columns([2, 1, 1, 1, 1, 1])
-                                ac1.write(f"**{a['n']}**")
-                                ac2.write(f"${s['price']:.2f}")
-                                def t_col(t): return "🟢" if t=="BULL" else "🔴"
-                                ac3.write(t_col(s['trend_s']))
-                                ac4.write(t_col(s['trend_m']))
-                                ac5.write(t_col(s['trend_l']))
-                                if ac6.button("📊", key=f"btn_g_{a['t']}"): show_detail(a['t']); st.rerun()
-                    st.divider()
-
-    st.markdown("---")
-
-    # === SEZIONE 2: SETTORI ===
-    st.header("2. 🏭 Analisi Settoriale")
-    render_header()
-    
-    sect_list = []
-    
-    proxies_s = list(db_structure['SECTOR'].items())
-    progress_bar_s = st.progress(0)
-    
-    for i, (sect, data) in enumerate(proxies_s):
-        stats = analyze_asset_complete(data['proxy'])
-        if stats: sect_list.append({**stats, "Settore": sect})
-        progress_bar_s.progress((i + 1) / len(proxies_s))
+        icon = "🔥" if row['score'] > 7.0 else ("❄️" if row['score'] < -7.0 else "")
+        c1.markdown(f"**{icon} {row['Area']}**")
         
-    progress_bar_s.empty()
+        if row['best_month'] != "N/A":
+            c2.markdown(render_score_cell(row['score'], row['score_prev_1m']))
+            c3.write(f"{row['score_prev_1m']:.1f}")
+            c4.write(f"{row['score_prev_3m']:.1f}")
+            c5.write(f"Best: **{row['best_month']}**")
+        else:
+            c2.write("---") # Dato mancante
+            
+        lab = "⬇️" if st.session_state.expanded_geo == row['Area'] else "▶️"
+        if c6.button(lab, key=f"bg_{row['Area']}"): toggle_geo(row['Area']); st.rerun()
 
-    if sect_list:
-        df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
-        with st.container(height=600):
-            for _, row in df_sect.iterrows():
-                c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
-                icon = "🔥" if row['score'] > 7.0 else ("❄️" if row['score'] < -7.0 else "")
-                c1.markdown(f"**{icon} {row['Settore']}**")
-                c2.markdown(render_score_cell(row['score'], row['score_prev_1m']))
-                c3.write(f"{row['score_prev_1m']:.1f}")
-                c4.write(f"{row['score_prev_3m']:.1f}")
-                c5.write(f"Best: **{row['best_month']}**")
-                
-                lab = "⬇️" if st.session_state.expanded_sector == row['Settore'] else "▶️"
-                if c6.button(lab, key=f"bs_{row['Settore']}"): toggle_sector(row['Settore']); st.rerun()
-
-                if st.session_state.expanded_sector == row['Settore']:
-                    with st.container(border=True):
-                        st.info(f"Recupero dettagli {row['Settore']}...")
-                        h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 1, 1, 1, 1])
-                        h1.markdown("*Asset*")
-                        h2.markdown("*Trend B.*")
-                        h3.markdown("*Trend M.*")
-                        h4.markdown("*Trend L.*")
-                        assets = db_structure['SECTOR'][row['Settore']]['assets']
-                        for a in assets:
-                            s = analyze_asset_complete(a['t'])
-                            if s:
-                                ac1, ac2, ac3, ac4, ac5, ac6 = st.columns([2, 1, 1, 1, 1, 1])
-                                ac1.write(f"**{a['n']}**")
-                                ac2.write(f"${s['price']:.2f}")
-                                def t_col(t): return "🟢" if t=="BULL" else "🔴"
-                                ac3.write(t_col(s['trend_s']))
-                                ac4.write(t_col(s['trend_m']))
-                                ac5.write(t_col(s['trend_l']))
-                                if ac6.button("📊", key=f"btn_s_{a['t']}"): show_detail(a['t']); st.rerun()
-                    st.divider()
-
-    st.markdown("---")
-
-    # === SEZIONE 3: PILASTRI ===
-    st.header("3. 🏛️ I 4 Pilastri Strategici")
-    cols = st.columns(4)
-    i = 0
-    for pillar_name, data in db_structure['PILLARS'].items():
-        with cols[i]:
+        # SPACCATO (LINK-OUT)
+        if st.session_state.expanded_geo == row['Area']:
             with st.container(border=True):
-                st.subheader(pillar_name)
-                main = data['main']
-                m_stats = analyze_asset_complete(main['t'])
+                st.caption(f"Top Asset per: {row['Area']} (Clicca per Dettagli)")
+                h1, h2, h3 = st.columns([3, 2, 2])
+                h1.markdown("*Asset*")
+                h2.markdown("*Tipo*")
+                h3.markdown("*Link Esterno*")
                 
-                if m_stats:
-                    st.markdown(f"**👑 {main['n']}**")
-                    if 'isin' in main: st.caption(f"ISIN: {main['isin']}")
-                    
-                    col_m1, col_m2 = st.columns(2)
-                    col_m1.metric("Prezzo", f"${m_stats['price']:.0f}")
-                    trend_icon = "🟢" if m_stats['trend_m'] == "BULL" else "🔴"
-                    col_m2.metric("Trend (50d)", m_stats['trend_m'])
-                
-                st.divider()
-                st.markdown("**Alternative:**")
-                for alt in data['alts']:
-                    st.write(f"🔹 **{alt['n']}**")
-                    if 'isin' in alt: st.caption(f"ISIN: {alt['isin']}")
-                    if st.button(f"Grafico {alt['t']}", key=f"alt_{alt['t']}"):
-                        show_detail(alt['t'])
-                        st.rerun()
-        i += 1
+                assets = db_structure['GEO'][row['Area']]['assets']
+                for a in assets:
+                    ac1, ac2, ac3 = st.columns([3, 2, 2])
+                    ac1.write(f"**{a['n']}** ({a['t']})")
+                    ac2.write(f"*{a.get('type', 'ETF')}*")
+                    # LINK ESTERNO DIRETTO A YAHOO
+                    ac3.link_button("🌐 Yahoo Finance", get_yahoo_link(a['t']))
+            st.divider()
 
-# --- PAGINA DETTAGLIO ---
-def render_detail():
-    tk = st.session_state.selected_asset
-    st.button("🔙 TORNA ALLA DASHBOARD", on_click=back_to_dash)
-    st.title(f"Analisi Approfondita: {tk}")
-    
-    df = get_safe_history(tk)
-    if not df.empty and len(df) > 20:
-        st.subheader("Grafico Tecnico & Medie Mobili")
-        df['SMA50'] = df['Close'].rolling(50).mean()
-        df['SMA200'] = df['Close'].rolling(200).mean()
-        st.line_chart(df[['Close', 'SMA50', 'SMA200']])
-        
-        st.subheader("Statistiche Chiave")
-        curr = float(df['Close'].iloc[-1])
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Prezzo Attuale", f"${curr:.2f}")
-        c2.metric("Volatilità (Risk)", f"{df['Close'].pct_change().std()*np.sqrt(252)*100:.1f}%")
-        
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs)).iloc[-1]
-        c3.metric("RSI (14)", f"{rsi:.1f}")
-        c4.write("RSI < 30: Ipervenduto\nRSI > 70: Ipercomprato")
-        
-        st.subheader("📅 Stagionalità Mensile")
-        df['M'] = df.index.month
-        monthly = df.groupby('M')['Close'].apply(lambda x: (x.iloc[-1]-x.iloc[0])/x.iloc[0]*100)
-        monthly.index = [calendar.month_abbr[i] for i in monthly.index]
-        st.bar_chart(monthly)
-    else:
-        st.error("Dati non disponibili per questo asset.")
+st.markdown("---")
 
-# --- MAIN ---
-if st.session_state.page == 'dashboard':
-    render_dashboard()
-else:
-    render_detail()
+# 2. SETTORI
+st.header("2. 🏭 Analisi Settoriale")
+render_header()
+
+sect_list = []
+proxies_s = list(db_structure['SECTOR'].items())
+progress_s = st.progress(0)
+
+for i, (sect, data) in enumerate(proxies_s):
+    stats = analyze_proxy(data['proxy'])
+    if not stats: stats = {"score": 0, "score_prev_1m": 0, "score_prev_3m": 0, "best_month": "N/A"}
+    sect_list.append({**stats, "Settore": sect})
+    progress_s.progress((i + 1) / len(proxies_s))
+
+progress_s.empty()
+df_sect = pd.DataFrame(sect_list).sort_values(by="score", ascending=False)
+
+with st.container(height=600):
+    for _, row in df_sect.iterrows():
+        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.5, 1])
+        icon = "🔥" if row['score'] > 7.0 else ("❄️" if row['score'] < -7.0 else "")
+        c1.markdown(f"**{icon} {row['Settore']}**")
+        
+        if row['best_month'] != "N/A":
+            c2.markdown(render_score_cell(row['score'], row['score_prev_1m']))
+            c3.write(f"{row['score_prev_1m']:.1f}")
+            c4.write(f"{row['score_prev_3m']:.1f}")
+            c5.write(f"Best: **{row['best_month']}**")
+        else:
+            c2.write("---")
+            
+        lab = "⬇️" if st.session_state.expanded_sector == row['Settore'] else "▶️"
+        if c6.button(lab, key=f"bs_{row['Settore']}"): toggle_sector(row['Settore']); st.rerun()
+
+        if st.session_state.expanded_sector == row['Settore']:
+            with st.container(border=True):
+                st.caption(f"Top Asset per: {row['Settore']}")
+                assets = db_structure['SECTOR'][row['Settore']]['assets']
+                for a in assets:
+                    ac1, ac2, ac3 = st.columns([3, 2, 2])
+                    ac1.write(f"**{a['n']}** ({a['t']})")
+                    ac2.write("ETF/Stock")
+                    ac3.link_button("🌐 Yahoo Finance", get_yahoo_link(a['t']))
+            st.divider()
+
+st.markdown("---")
+
+# 3. PILASTRI
+st.header("3. 🏛️ I 4 Pilastri Strategici")
+cols = st.columns(4)
+i = 0
+for pillar_name, data in db_structure['PILLARS'].items():
+    with cols[i]:
+        with st.container(border=True):
+            st.subheader(pillar_name)
+            main = data['main']
+            # Scarichiamo score solo per il main
+            m_stats = analyze_proxy(main['t'])
+            
+            if m_stats:
+                st.markdown(f"**👑 {main['n']}**")
+                if 'isin' in main: st.caption(f"ISIN: {main['isin']}")
+                col_m1, col_m2 = st.columns(2)
+                col_m1.markdown(render_score_cell(m_stats['score'], m_stats['score_prev_1m']))
+                col_m2.link_button("Grafico", get_yahoo_link(main['t']))
+            else:
+                st.write(f"**{main['n']}**")
+                st.link_button("Vedi su Yahoo", get_yahoo_link(main['t']))
+            
+            st.divider()
+            st.markdown("**Alternative:**")
+            for alt in data['alts']:
+                st.write(f"🔹 **{alt['n']}**")
+                if 'isin' in alt: st.caption(f"ISIN: {alt['isin']}")
+                st.link_button(f"Vai a {alt['t']}", get_yahoo_link(alt['t']))
+    i += 1
