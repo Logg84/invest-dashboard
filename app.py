@@ -5,7 +5,7 @@ import numpy as np
 import time
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Strategic Terminal v16.0", layout="wide")
+st.set_page_config(page_title="Strategic Terminal v17.0", layout="wide")
 st.markdown("""
 <style>
     .stButton>button { width: 100%; padding: 0px; height: 1.8em; font-size: 0.8rem; }
@@ -332,7 +332,7 @@ db = {
 
 # --- ENGINE ---
 def analyze_ticker(ticker):
-    """Scarica dati. Se fallisce, RITORNA DEFAULT (N/A) invece di None."""
+    """Scarica dati 2 anni. Se fallisce, ritorna dati 'vuoti' validi per la visualizzazione."""
     try:
         # Time.sleep per rate limit
         time.sleep(0.05)
@@ -393,56 +393,78 @@ def render_main_header():
 
 def render_section(section_key, title):
     st.header(title)
+    
+    # SORTING WIDGET (Local per sezione)
+    sort_col, _ = st.columns([2, 4])
+    with sort_col:
+        sort_by = st.selectbox(f"Ordinamento {title}", 
+                               ["Punteggio (Score)", "Perf. 1 Mese", "Perf. 3 Mesi", "Perf. 6 Mesi", "Perf. 1 Anno"],
+                               key=f"sort_{section_key}")
+    
     render_main_header()
     
-    items = list(db[section_key].items())
+    # Preparazione lista e sorting key
+    sort_map = {
+        "Punteggio (Score)": "score",
+        "Perf. 1 Mese": "p1m",
+        "Perf. 3 Mesi": "p3m",
+        "Perf. 6 Mesi": "p6m",
+        "Perf. 1 Anno": "p1y"
+    }
+    target_sort = sort_map[sort_by]
     
-    # Progress Bar per caricamento iniziale
+    items = list(db[section_key].items())
+    results = []
+    
+    # Progress Bar
     prog = st.progress(0)
     for i, (name, data) in enumerate(items):
-        # Analisi del Proxy (Capogruppo)
         stats = analyze_ticker(data['p'])
-        
-        # Visualizzazione Riga
+        # Aggiungiamo alla lista SEMPRE, anche se valid=False (così non sparisce)
+        results.append({**stats, "name": name, "key": name, "data": data})
+        prog.progress((i+1)/len(items))
+    prog.empty()
+    
+    # Sorting Dinamico (Fail-safe: i non validi vanno in fondo)
+    results.sort(key=lambda x: x[target_sort] if x['valid'] else -9999, reverse=True)
+    
+    for row in results:
         c1, c2, c3, c4, c5, c6, c7 = st.columns([3, 1, 1, 1, 1, 1, 1])
         
-        # Icona Score
-        score = stats['score']
-        valid = stats['valid']
+        valid = row['valid']
+        icon = "🔥" if valid and row['score'] > 7 else ("❄️" if valid and row['score'] < -7 else "➖")
+        
+        c1.markdown(f"**{icon} {row['name']}**")
         
         if valid:
-            icon = "🔥" if score > 7 else ("❄️" if score < -7 else "➖")
-            sc_col = "green" if score > 0 else "red"
-            score_txt = f":{sc_col}[**{score:.1f}**]"
+            sc_col = "green" if row['score'] > 0 else "red"
+            c2.markdown(f":{sc_col}[**{row['score']:.1f}**]")
         else:
-            icon = "⚠️"
-            score_txt = "N/A"
-
-        c1.markdown(f"**{icon} {name}**")
-        c2.markdown(score_txt)
-        c3.markdown(color_val(stats['p1m'], valid))
-        c4.markdown(color_val(stats['p3m'], valid))
-        c5.markdown(color_val(stats['p6m'], valid))
-        c6.markdown(color_val(stats['p1y'], valid))
+            c2.write("N/A")
+        
+        c3.markdown(color_val(row['p1m'], valid))
+        c4.markdown(color_val(row['p3m'], valid))
+        c5.markdown(color_val(row['p6m'], valid))
+        c6.markdown(color_val(row['p1y'], valid))
         
         # Bottone Espansione
-        is_expanded = (st.session_state.expanded_id == name)
+        is_expanded = (st.session_state.expanded_id == row['key'])
         label = "⬇️ Dettagli" if not is_expanded else "❌ Chiudi"
         
-        if c7.button(label, key=f"btn_{name}"):
-            st.session_state.expanded_id = name if not is_expanded else None
+        if c7.button(label, key=f"btn_{row['key']}"):
+            st.session_state.expanded_id = row['key'] if not is_expanded else None
             st.rerun()
             
         # SPACCATO (Caricato SOLO se espanso)
         if is_expanded:
             with st.container(border=True):
-                st.markdown(f"#### 🔎 Analisi Approfondita: {name}")
+                st.markdown(f"#### 🔎 Analisi Approfondita: {row['name']}")
                 
                 # Combiniamo ETF e Stocks
                 sub_assets = []
-                if 'etfs' in data: sub_assets += data['etfs']
-                if 'stocks' in data: sub_assets += data['stocks']
-                if 'alts' in data: sub_assets += data['alts']
+                if 'etfs' in row['data']: sub_assets += row['data']['etfs']
+                if 'stocks' in row['data']: sub_assets += row['data']['stocks']
+                if 'alts' in row['data']: sub_assets += row['data']['alts']
                 
                 # Header Sub-tabella
                 sc1, sc2, sc3, sc4, sc5, sc6, sc7, sc8 = st.columns([2, 1, 2, 1, 1, 1, 1, 1])
@@ -456,35 +478,33 @@ def render_section(section_key, title):
                 sc8.caption("LINK")
                 st.divider()
                 
-                # Loop sui 6 asset
-                for asset in sub_assets:
-                    # Scarichiamo dati (o N/A se fallisce)
-                    s_stats = analyze_ticker(asset['t'])
-                    
-                    sc1, sc2, sc3, sc4, sc5, sc6, sc7, sc8 = st.columns([2, 1, 2, 1, 1, 1, 1, 1])
-                    sc1.write(f"**{asset['n']}**")
-                    sc2.write(f"`{asset['t']}`")
-                    sc3.write(f"{asset['isin']}")
-                    
-                    if s_stats['valid']:
-                        sc4.write(f"${s_stats['price']:.2f}")
-                        sc5.markdown(color_val(s_stats['p1m'], True))
-                        sc6.markdown(color_val(s_stats['p6m'], True))
-                        sc7.markdown(color_val(s_stats['p1y'], True))
-                    else:
-                        sc4.write("N/A")
-                        sc5.write("-")
-                        sc6.write("-")
-                        sc7.write("-")
+                # Caricamento Live dei Sottostanti
+                with st.spinner(f"Scaricamento dati per {len(sub_assets)} asset..."):
+                    for asset in sub_assets:
+                        s_stats = analyze_ticker(asset['t'])
                         
-                    sc8.link_button("🌐", f"https://finance.yahoo.com/quote/{asset['t']}")
-                    
-        prog.progress((i+1)/len(items))
-    prog.empty()
+                        sc1, sc2, sc3, sc4, sc5, sc6, sc7, sc8 = st.columns([2, 1, 2, 1, 1, 1, 1, 1])
+                        sc1.write(f"**{asset['n']}**")
+                        sc2.write(f"`{asset['t']}`")
+                        sc3.write(f"{asset['isin']}")
+                        
+                        if s_stats['valid']:
+                            sc4.write(f"${s_stats['price']:.2f}")
+                            sc5.markdown(color_val(s_stats['p1m'], True))
+                            sc6.markdown(color_val(s_stats['p6m'], True))
+                            sc7.markdown(color_val(s_stats['p1y'], True))
+                        else:
+                            sc4.write("N/A")
+                            sc5.write("-")
+                            sc6.write("-")
+                            sc7.write("-")
+                            
+                        sc8.link_button("🌐", f"https://finance.yahoo.com/quote/{asset['t']}")
+                st.write("") 
 
 # --- MAIN ---
-st.title("🌍 Strategic Terminal v16.0")
-st.caption("Database Completo (15+ Nazioni) • Fail-Safe Attivo • ISIN Inclusi")
+st.title("🌍 Strategic Terminal v17.0")
+st.caption("Database Full • Ordinamento Dinamico • Performance 6M/1Y • Spaccato 6 Asset")
 
 if st.button("🔄 AGGIORNA DATI"):
     st.cache_data.clear()
